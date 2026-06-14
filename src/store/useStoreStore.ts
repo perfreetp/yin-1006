@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Store, FilterParams, LuggageSize, LocationType } from '@/types';
 import { mockStores } from '@/data/stores';
+import { useAdminStore as _useAdminStore } from './useAdminStore';
 
 interface StoreState {
   stores: Store[];
@@ -18,6 +19,9 @@ interface StoreState {
   addStore: (store: Omit<Store, 'id'>) => void;
   updateStore: (id: string, updates: Partial<Store>) => void;
   deleteStore: (id: string) => void;
+  occupyCapacity: (storeId: string, count: number) => void;
+  releaseCapacity: (storeId: string, count: number) => void;
+  getEffectiveCapacity: (storeId: string, date?: string) => number;
 }
 
 export const useStoreStore = create<StoreState>()(
@@ -28,13 +32,13 @@ export const useStoreStore = create<StoreState>()(
         sortBy: 'distance',
       },
       selectedStore: null,
-      
+
       setFilters: (filters) => {
         set(state => ({
           filters: { ...state.filters, ...filters },
         }));
       },
-      
+
       toggleSizeFilter: (size) => {
         set(state => {
           const currentSizes = state.filters.sizes || [];
@@ -64,7 +68,7 @@ export const useStoreStore = create<StoreState>()(
           };
         });
       },
-      
+
       toggleOpenNow: () => {
         set(state => ({
           filters: {
@@ -73,17 +77,17 @@ export const useStoreStore = create<StoreState>()(
           },
         }));
       },
-      
+
       setSortBy: (sortBy) => {
         set(state => ({
           filters: { ...state.filters, sortBy },
         }));
       },
-      
+
       selectStore: (store) => {
         set({ selectedStore: store });
       },
-      
+
       getStoreById: (id) => {
         return get().stores.find(s => s.id === id);
       },
@@ -110,11 +114,60 @@ export const useStoreStore = create<StoreState>()(
           stores: state.stores.filter(s => s.id !== id),
         }));
       },
-      
+
+      occupyCapacity: (storeId, count) => {
+        set(state => ({
+          stores: state.stores.map(s => {
+            if (s.id !== storeId) return s;
+            const newAvailable = Math.max(0, s.availableCapacity - count);
+            return { ...s, availableCapacity: newAvailable };
+          }),
+          selectedStore: state.selectedStore?.id === storeId
+            ? {
+                ...state.selectedStore,
+                availableCapacity: Math.max(0, state.selectedStore.availableCapacity - count),
+              }
+            : state.selectedStore,
+        }));
+      },
+
+      releaseCapacity: (storeId, count) => {
+        set(state => ({
+          stores: state.stores.map(s => {
+            if (s.id !== storeId) return s;
+            const newAvailable = Math.min(s.totalCapacity, s.availableCapacity + count);
+            return { ...s, availableCapacity: newAvailable };
+          }),
+          selectedStore: state.selectedStore?.id === storeId
+            ? {
+                ...state.selectedStore,
+                availableCapacity: Math.min(
+                  state.selectedStore.totalCapacity,
+                  state.selectedStore.availableCapacity + count
+                ),
+              }
+            : state.selectedStore,
+        }));
+      },
+
+      getEffectiveCapacity: (storeId, date) => {
+        const store = get().stores.find(s => s.id === storeId);
+        if (!store) return 0;
+
+        const targetDate = date ? new Date(date) : new Date();
+        const dateStr = targetDate.toISOString().split('T')[0];
+
+        const adminState = _useAdminStore.getState();
+        const holidayConfig = adminState.holidayConfigs.find(h => h.date === dateStr);
+        const multiplier = holidayConfig?.capacityMultiplier || 1;
+
+        return Math.floor(store.totalCapacity * multiplier);
+      },
+
       getFilteredStores: () => {
         const { stores, filters } = get();
         let filtered = [...stores];
-        
+
         if (filters.keyword) {
           const keyword = filters.keyword.toLowerCase();
           filtered = filtered.filter(s =>
@@ -122,11 +175,11 @@ export const useStoreStore = create<StoreState>()(
             s.address.toLowerCase().includes(keyword)
           );
         }
-        
+
         if (filters.locationTypes && filters.locationTypes.length > 0) {
           filtered = filtered.filter(s => filters.locationTypes!.includes(s.locationType));
         }
-        
+
         if (filters.openNow) {
           const now = new Date();
           const currentHour = now.getHours();
@@ -140,7 +193,7 @@ export const useStoreStore = create<StoreState>()(
             return true;
           });
         }
-        
+
         if (filters.sizes && filters.sizes.length > 0) {
           filtered = filtered.filter(s => {
             return filters.sizes?.some(size => {
@@ -151,18 +204,18 @@ export const useStoreStore = create<StoreState>()(
             });
           });
         }
-        
+
         if (filters.priceMin !== undefined) {
           filtered = filtered.filter(s => s.basePrice >= filters.priceMin!);
         }
         if (filters.priceMax !== undefined) {
           filtered = filtered.filter(s => s.basePrice <= filters.priceMax!);
         }
-        
+
         if (filters.minRating !== undefined) {
           filtered = filtered.filter(s => s.rating >= filters.minRating!);
         }
-        
+
         if (filters.sortBy) {
           switch (filters.sortBy) {
             case 'distance':
@@ -179,7 +232,7 @@ export const useStoreStore = create<StoreState>()(
               break;
           }
         }
-        
+
         return filtered;
       },
     }),

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   BarChart3,
   Store as StoreIcon,
@@ -51,6 +51,8 @@ export default function AdminDashboard() {
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<HolidayConfig | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [priceRuleStoreId, setPriceRuleStoreId] = useState<string>('');
+  const [storeTotalCapacity, setStoreTotalCapacity] = useState<number>(0);
 
   const { stores, addStore, updateStore, deleteStore, getStoreById } = useStoreStore();
   const {
@@ -64,12 +66,18 @@ export default function AdminDashboard() {
     updateHoliday,
     deleteHoliday,
     settlePayment,
+    getPriceRuleByStoreId,
   } = useAdminStore();
 
   const showToast = (message: string) => {
     setToast(message);
     setTimeout(() => setToast(null), 2500);
   };
+
+  const maxCapacityMultiplier = useMemo(() => {
+    if (holidayConfigs.length === 0) return 1;
+    return Math.max(...holidayConfigs.map(h => h.capacityMultiplier));
+  }, [holidayConfigs]);
 
   const filteredStores = useMemo(() => {
     if (!searchKeyword) return stores;
@@ -97,6 +105,37 @@ export default function AdminDashboard() {
 
   const maxRevenue = Math.max(...chartData.map(d => d.revenue));
   const maxOrders = Math.max(...chartData.map(d => d.orders));
+
+  const deduplicatedPriceRules = useMemo(() => {
+    const seen = new Map<string, PriceRule>();
+    for (const rule of priceRules) {
+      if (!seen.has(rule.storeId)) {
+        seen.set(rule.storeId, rule);
+      }
+    }
+    return Array.from(seen.values());
+  }, [priceRules]);
+
+  const storeHasExistingRule = useMemo(() => {
+    if (!priceRuleStoreId || editingPriceRule) return false;
+    return priceRules.some(r => r.storeId === priceRuleStoreId);
+  }, [priceRuleStoreId, priceRules, editingPriceRule]);
+
+  const effectiveCapacity = useMemo(() => {
+    return Math.floor(storeTotalCapacity * maxCapacityMultiplier);
+  }, [storeTotalCapacity, maxCapacityMultiplier]);
+
+  useEffect(() => {
+    if (showPriceModal) {
+      setPriceRuleStoreId(editingPriceRule?.storeId || '');
+    }
+  }, [showPriceModal, editingPriceRule]);
+
+  useEffect(() => {
+    if (showStoreModal) {
+      setStoreTotalCapacity(editingStore?.totalCapacity || 0);
+    }
+  }, [showStoreModal, editingStore]);
 
   const handleSaveStore = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -183,6 +222,9 @@ export default function AdminDashboard() {
       }
       showToast('价格规则更新成功');
     } else {
+      if (storeHasExistingRule) {
+        showToast('该门店已有价格规则，将覆盖原规则');
+      }
       addPriceRule(priceRuleData);
       const targetStore = getStoreById(priceRuleData.storeId);
       if (targetStore) {
@@ -195,7 +237,9 @@ export default function AdminDashboard() {
           dailyCap: priceRuleData.dailyCap,
         });
       }
-      showToast('价格规则新增成功');
+      if (!storeHasExistingRule) {
+        showToast('价格规则新增成功');
+      }
     }
     setShowPriceModal(false);
     setEditingPriceRule(null);
@@ -451,7 +495,7 @@ export default function AdminDashboard() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">地址</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">类型</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">评分</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">容量</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">有效容量</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">操作</th>
                 </tr>
               </thead>
@@ -477,9 +521,14 @@ export default function AdminDashboard() {
                       <span className="text-sm font-medium text-amber-600">{store.rating}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-slate-600">
-                        {store.availableCapacity}/{store.totalCapacity}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm text-slate-600">
+                          {store.availableCapacity}/{store.totalCapacity}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          节假日倍率 x{maxCapacityMultiplier}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -534,11 +583,12 @@ export default function AdminDashboard() {
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">大件</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">小时费率</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">每日封顶</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase">联动状态</th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {priceRules.map(rule => (
+                  {deduplicatedPriceRules.map(rule => (
                     <tr key={rule.id} className="hover:bg-slate-50/50">
                       <td className="px-6 py-4 font-medium text-slate-800 text-sm">
                         {getStoreNameById(rule.storeId)}
@@ -548,6 +598,12 @@ export default function AdminDashboard() {
                       <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.largePrice)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.hourlyRate)}/时</td>
                       <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.dailyCap)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700">
+                          <Check size={12} />
+                          已联动
+                        </span>
+                      </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
@@ -778,10 +834,17 @@ export default function AdminDashboard() {
                     type="number"
                     name="totalCapacity"
                     defaultValue={editingStore?.totalCapacity}
+                    onChange={e => setStoreTotalCapacity(parseInt(e.target.value) || 0)}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
                     required
                     min="1"
                   />
+                  <p className="mt-1 text-xs text-slate-500">
+                    节假日倍率 x{maxCapacityMultiplier} 时，有效容量 = 总容量 x {maxCapacityMultiplier}
+                  </p>
+                  <p className="mt-0.5 text-xs font-medium text-teal-600">
+                    当前有效容量：{effectiveCapacity}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">基础价格(元)</label>
@@ -898,7 +961,8 @@ export default function AdminDashboard() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">所属门店</label>
                 <select
                   name="storeId"
-                  defaultValue={editingPriceRule?.storeId}
+                  value={priceRuleStoreId}
+                  onChange={e => setPriceRuleStoreId(e.target.value)}
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
                   required
                 >
@@ -907,6 +971,11 @@ export default function AdminDashboard() {
                     <option key={store.id} value={store.id}>{store.name}</option>
                   ))}
                 </select>
+                {storeHasExistingRule && (
+                  <p className="mt-1 text-xs text-amber-600 font-medium">
+                    该门店已有价格规则，将覆盖原规则
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

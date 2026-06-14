@@ -19,8 +19,8 @@ import { useStoreStore } from '@/store/useStoreStore';
 import { useOrderStore } from '@/store/useOrderStore';
 import { useUserStore } from '@/store/useUserStore';
 import { useAdminStore } from '@/store/useAdminStore';
-import { formatPrice, getSizeLabel, getSizeDescription, calculatePrice, calculateInsurancePremium, isHolidayPeriod } from '@/utils/format';
-import type { LuggageSize } from '@/types';
+import { formatPrice, getSizeLabel, getSizeDescription, calculateLuggagesPrice, calculateInsurancePremium, isHolidayPeriod } from '@/utils/format';
+import type { LuggageSize, PriceSnapshot } from '@/types';
 
 const sizeOptions: { value: LuggageSize; label: string; priceKey: 'smallPrice' | 'mediumPrice' | 'largePrice' }[] = [
   { value: 'small', label: '小件', priceKey: 'smallPrice' },
@@ -111,37 +111,87 @@ export default function OrderCreate() {
     setTimeError(null);
   }, [startDateTime, endDateTime]);
 
-  if (!store) {
-    return (
-      <div className="py-16 text-center">
-        <p className="text-slate-500">寄存点不存在</p>
-      </div>
-    );
-  }
+  const luggages = useMemo(() => {
+    return Array.from({ length: luggageCount }, () => ({ size: selectedSize }));
+  }, [selectedSize, luggageCount]);
 
-  const sizePriceKey = sizeOptions.find(s => s.value === selectedSize)?.priceKey || 'mediumPrice';
   const priceRule = store ? getPriceRuleByStoreId(store.id) : undefined;
-  
-  const effectiveBasePrice = priceRule ? priceRule[sizePriceKey] : (store ? store[sizePriceKey] : 15);
-  const effectiveHourlyRate = priceRule ? priceRule.hourlyRate : (store?.hourlyRate || 5);
-  const effectiveDailyCap = priceRule ? priceRule.dailyCap : (store?.dailyCap || 30);
+
+  const effectivePrices = useMemo(() => {
+    if (!store) return null;
+    if (priceRule) {
+      return {
+        smallPrice: priceRule.smallPrice,
+        mediumPrice: priceRule.mediumPrice,
+        largePrice: priceRule.largePrice,
+        hourlyRate: priceRule.hourlyRate,
+        dailyCap: priceRule.dailyCap,
+      };
+    }
+    return {
+      smallPrice: store.smallPrice,
+      mediumPrice: store.mediumPrice,
+      largePrice: store.largePrice,
+      hourlyRate: store.hourlyRate,
+      dailyCap: store.dailyCap,
+    };
+  }, [store, priceRule]);
+
   const holidaySurcharge = priceRule ? priceRule.holidaySurcharge : 0;
-  
-  const { isHoliday, multiplier: priceMultiplier } = isHolidayPeriod(startDateTime, endDateTime, holidayConfigs);
-  
+
+  const { isHoliday, multiplier: priceMultiplier, capacityMultiplier } = isHolidayPeriod(
+    startDateTime,
+    endDateTime,
+    holidayConfigs
+  );
+
   const totalHours = Math.max(1, Math.ceil(
     (new Date(endDateTime).getTime() - new Date(startDateTime).getTime()) / (1000 * 60 * 60)
   ));
-  
-  const luggagePrice = calculatePrice(effectiveBasePrice, effectiveHourlyRate, effectiveDailyCap, startDateTime, endDateTime, luggageCount, priceMultiplier, holidaySurcharge);
-  const insurancePremium = insuredAmount > 0 ? calculateInsurancePremium(insuredAmount) * luggageCount : 0;
+
+  const { total: luggagePrice, perLuggage } = useMemo(() => {
+    if (!effectivePrices) return { total: 0, perLuggage: [] as { size: LuggageSize; amount: number }[] };
+    return calculateLuggagesPrice(
+      luggages,
+      effectivePrices,
+      startDateTime,
+      endDateTime,
+      priceMultiplier,
+      holidaySurcharge
+    );
+  }, [luggages, effectivePrices, startDateTime, endDateTime, priceMultiplier, holidaySurcharge]);
+
+  const insurancePremiumPerPiece = insuredAmount > 0 ? calculateInsurancePremium(insuredAmount) : 0;
+  const insurancePremium = insurancePremiumPerPiece * luggageCount;
   const totalAmount = luggagePrice + insurancePremium;
 
-  const canSubmit = !timeError && startDate && startTime && endDate && endTime;
+  const effectiveCapacity = store ? Math.floor(store.totalCapacity * capacityMultiplier) : 0;
+  const capacityError = store && store.availableCapacity < luggageCount
+    ? `当前可用容量 ${store.availableCapacity}，节假日倍率 ${capacityMultiplier}，您需要 ${luggageCount} 个柜位，容量不足`
+    : null;
+
+  const canSubmit = !timeError && !capacityError && startDate && startTime && endDate && endTime;
+
+  const priceSnapshot: PriceSnapshot | null = useMemo(() => {
+    if (!effectivePrices) return null;
+    return {
+      basePrice: effectivePrices.mediumPrice,
+      smallPrice: effectivePrices.smallPrice,
+      mediumPrice: effectivePrices.mediumPrice,
+      largePrice: effectivePrices.largePrice,
+      hourlyRate: effectivePrices.hourlyRate,
+      dailyCap: effectivePrices.dailyCap,
+      holidaySurcharge,
+      priceMultiplier,
+      isHoliday,
+    };
+  }, [effectivePrices, holidaySurcharge, priceMultiplier, isHoliday]);
 
   const handleSubmit = () => {
     if (!currentUser) return;
     if (!canSubmit) return;
+    if (!priceSnapshot) return;
+    if (!store) return;
 
     const newOrder = createOrder({
       userId: currentUser.id,
@@ -150,9 +200,7 @@ export default function OrderCreate() {
       startTime: startDateTime,
       endTime: endDateTime,
       luggageCount,
-      luggages: Array.from({ length: luggageCount }, () => ({
-        size: selectedSize,
-      })),
+      luggages: luggages.map(l => ({ size: l.size })),
       totalAmount,
       insuranceAmount: insurancePremium,
       insurance: insuredAmount > 0
@@ -163,11 +211,20 @@ export default function OrderCreate() {
             status: 'active',
           }
         : null,
+      priceSnapshot,
     });
 
     payOrder(newOrder.id);
     setShowSuccess(true);
   };
+
+  if (!store) {
+    return (
+      <div className="py-16 text-center">
+        <p className="text-slate-500">寄存点不存在</p>
+      </div>
+    );
+  }
 
   if (showSuccess) {
     const order = useOrderStore.getState().currentOrder;
@@ -369,7 +426,7 @@ export default function OrderCreate() {
           </div>
         </div>
 
-        <div>
+        <div className="mb-6">
           <label className="block text-sm font-medium text-slate-700 mb-3">
             行李件数
           </label>
@@ -392,6 +449,19 @@ export default function OrderCreate() {
             <span className="text-sm text-slate-500 ml-2">件</span>
           </div>
         </div>
+
+        <div className="p-3 bg-slate-50 rounded-xl">
+          <p className="text-sm text-slate-700">
+            可用容量 {store.availableCapacity}/{store.totalCapacity}（节假日倍率 x{capacityMultiplier}）
+          </p>
+        </div>
+
+        {capacityError && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2">
+            <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{capacityError}</p>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
@@ -422,6 +492,44 @@ export default function OrderCreate() {
         <p className="text-xs text-slate-400 mt-3">
           保价行李如有遗失或损坏，按保价金额赔付
         </p>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+        <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <CreditCard className="text-teal-600" size={20} />
+          费用明细
+        </h2>
+        <div className="space-y-3">
+          <div className="text-sm font-medium text-slate-700 mb-2">按件费用明细</div>
+          {perLuggage.map((item, index) => (
+            <div key={index} className="flex justify-between items-center text-sm">
+              <span className="text-slate-600">
+                第{index + 1}件 · {getSizeLabel(item.size)}
+              </span>
+              <span className="text-slate-800 font-medium">{formatPrice(item.amount)}</span>
+            </div>
+          ))}
+          <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-slate-500">行李寄存费小计</span>
+              <span className="text-slate-700">{formatPrice(luggagePrice)}</span>
+            </div>
+            {isHoliday && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">节假日加价</span>
+                <span className="text-amber-600">x{priceMultiplier}</span>
+              </div>
+            )}
+            {insurancePremium > 0 && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">
+                  保价费 ({insurancePremiumPerPiece > 0 ? `${formatPrice(insurancePremiumPerPiece)} × ${luggageCount}件` : ''})
+                </span>
+                <span className="text-slate-700">{formatPrice(insurancePremium)}</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-24">
@@ -484,7 +592,7 @@ export default function OrderCreate() {
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
               >
-                {timeError ? '时间有误' : '立即支付'}
+                {timeError ? '时间有误' : capacityError ? '容量不足' : '立即支付'}
               </button>
             </div>
           </div>

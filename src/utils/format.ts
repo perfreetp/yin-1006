@@ -1,3 +1,5 @@
+import type { LuggageItem, LuggageSize } from '@/types';
+
 export const formatPrice = (price: number): string => {
   return `¥${price.toFixed(2)}`;
 };
@@ -155,6 +157,49 @@ export const getPriorityColor = (priority: string): string => {
   return colorMap[priority] || 'bg-gray-100 text-gray-600';
 };
 
+const getSizePriceKey = (size: LuggageSize, prices: { smallPrice: number; mediumPrice: number; largePrice: number }): number => {
+  if (size === 'small') return prices.smallPrice;
+  if (size === 'large') return prices.largePrice;
+  return prices.mediumPrice;
+};
+
+export const calculateSingleLuggagePrice = (
+  size: LuggageSize,
+  prices: { smallPrice: number; mediumPrice: number; largePrice: number; hourlyRate: number; dailyCap: number },
+  startTime: string,
+  endTime: string,
+  priceMultiplier: number = 1,
+  holidaySurcharge: number = 0,
+): number => {
+  const basePrice = getSizePriceKey(size, prices);
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  const hours = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60)));
+  const days = Math.ceil(hours / 24);
+  const totalHours = Math.min(hours, days * 24);
+  let price = basePrice + Math.max(0, totalHours - 1) * prices.hourlyRate;
+  price = Math.min(price, prices.dailyCap * days);
+  price = price * priceMultiplier + holidaySurcharge * days;
+  return Math.round(price * 100) / 100;
+};
+
+export const calculateLuggagesPrice = (
+  luggages: { size: LuggageSize }[],
+  prices: { smallPrice: number; mediumPrice: number; largePrice: number; hourlyRate: number; dailyCap: number },
+  startTime: string,
+  endTime: string,
+  priceMultiplier: number = 1,
+  holidaySurcharge: number = 0,
+): { total: number; perLuggage: { size: LuggageSize; amount: number }[] } => {
+  let total = 0;
+  const perLuggage = luggages.map((lug) => {
+    const amount = calculateSingleLuggagePrice(lug.size, prices, startTime, endTime, priceMultiplier, holidaySurcharge);
+    total += amount;
+    return { size: lug.size, amount };
+  });
+  return { total, perLuggage };
+};
+
 export const calculatePrice = (
   basePrice: number,
   hourlyRate: number,
@@ -180,10 +225,11 @@ export const calculateInsurancePremium = (insuredAmount: number): number => {
   return Math.max(5, insuredAmount * 0.01);
 };
 
-export const isHolidayPeriod = (startTime: string, endTime: string, holidays: { date: string; priceMultiplier: number }[]): { isHoliday: boolean; multiplier: number } => {
+export const isHolidayPeriod = (startTime: string, endTime: string, holidays: { date: string; priceMultiplier: number; capacityMultiplier?: number }[]): { isHoliday: boolean; multiplier: number; capacityMultiplier: number } => {
   const start = new Date(startTime);
   const end = new Date(endTime);
   let maxMultiplier = 1;
+  let maxCapMultiplier = 1;
   let foundHoliday = false;
 
   for (const holiday of holidays) {
@@ -196,10 +242,38 @@ export const isHolidayPeriod = (startTime: string, endTime: string, holidays: { 
     if (holidayStr >= startDateStr && holidayStr <= endDateStr) {
       foundHoliday = true;
       maxMultiplier = Math.max(maxMultiplier, holiday.priceMultiplier);
+      if (holiday.capacityMultiplier) {
+        maxCapMultiplier = Math.max(maxCapMultiplier, holiday.capacityMultiplier);
+      }
     }
   }
 
-  return { isHoliday: foundHoliday, multiplier: maxMultiplier };
+  return { isHoliday: foundHoliday, multiplier: maxMultiplier, capacityMultiplier: maxCapMultiplier };
+};
+
+export const calculateOverdueFeePerLuggage = (
+  luggages: { size: LuggageSize }[],
+  prices: { hourlyRate: number; dailyCap: number },
+  originalEndTime: string,
+  currentTime: string,
+  priceMultiplier: number = 1,
+): { total: number; perLuggage: { size: LuggageSize; amount: number }[] } => {
+  const end = new Date(originalEndTime).getTime();
+  const now = new Date(currentTime).getTime();
+  if (now <= end) {
+    return {
+      total: 0,
+      perLuggage: luggages.map(l => ({ size: l.size, amount: 0 })),
+    };
+  }
+  const overdueHours = Math.max(1, Math.ceil((now - end) / (1000 * 60 * 60)));
+  const overdueDays = Math.ceil(overdueHours / 24);
+  const perLuggage = luggages.map(l => {
+    const amount = Math.min(prices.hourlyRate * overdueHours, prices.dailyCap * overdueDays) * priceMultiplier;
+    return { size: l.size, amount: Math.round(amount * 100) / 100 };
+  });
+  const total = perLuggage.reduce((sum, x) => sum + x.amount, 0);
+  return { total, perLuggage };
 };
 
 export const calculateOverdueFee = (

@@ -1,11 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Package, Clock, Shield, Star, X, ArrowLeft } from 'lucide-react';
+import { Package, Clock, Shield, Star, X, ArrowLeft, ChevronDown, ChevronUp, Receipt, CreditCard, History } from 'lucide-react';
 import { useOrderStore } from '@/store/useOrderStore';
 import { useAdminStore } from '@/store/useAdminStore';
 import { useUserStore } from '@/store/useUserStore';
 import { formatPrice, formatDateTime, getStatusLabel, getStatusColor, getSizeLabel, formatDuration, calculatePrice, isHolidayPeriod, calculateOverdueFee } from '@/utils/format';
-import type { Order, OrderStatus } from '@/types';
+import type { Order, OrderStatus, FeeRecord } from '@/types';
 
 const tabs: { key: OrderStatus | 'all' | 'active'; label: string }[] = [
   { key: 'all', label: '全部' },
@@ -37,6 +37,7 @@ export default function OrderCenter() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [showPickupCodeModal, setShowPickupCodeModal] = useState(false);
+  const [showPriceSnapshot, setShowPriceSnapshot] = useState(false);
 
   const currentOrder = id ? getOrderById(id!) : null;
 
@@ -75,6 +76,50 @@ export default function OrderCenter() {
     picked: orders.filter(o => o.status === 'picked').length,
     cancelled: orders.filter(o => o.status === 'cancelled').length,
   }), [orders]);
+
+  const getFeeTypeLabel = (type: FeeRecord['type']) => {
+    switch (type) {
+      case 'original': return '寄存费用';
+      case 'renew': return '续存费用';
+      case 'overdue': return '超时补费';
+      default: return '其他费用';
+    }
+  };
+
+  const getFeeTypeColor = (type: FeeRecord['type']) => {
+    switch (type) {
+      case 'original': return 'bg-teal-50 text-teal-700 border-teal-200';
+      case 'renew': return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'overdue': return 'bg-red-50 text-red-700 border-red-200';
+      default: return 'bg-slate-50 text-slate-700 border-slate-200';
+    }
+  };
+
+  const feeSummary = useMemo(() => {
+    if (!currentOrder) return null;
+    const originalFee = currentOrder.feeRecords
+      .filter(f => f.type === 'original')
+      .reduce((sum, f) => sum + f.amount, 0);
+    const renewFee = currentOrder.feeRecords
+      .filter(f => f.type === 'renew')
+      .reduce((sum, f) => sum + f.amount, 0);
+    const overdueFee = currentOrder.feeRecords
+      .filter(f => f.type === 'overdue')
+      .reduce((sum, f) => sum + f.amount, 0);
+    const insuranceFee = currentOrder.insuranceAmount || 0;
+    return { originalFee, renewFee, overdueFee, insuranceFee };
+  }, [currentOrder]);
+
+  const getLuggageFee = (luggageId: string) => {
+    if (!currentOrder) return null;
+    for (const record of currentOrder.feeRecords) {
+      if (record.detail?.perLuggage) {
+        const found = record.detail.perLuggage.find(p => p.luggageId === luggageId);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
 
   const handleViewDetail = (order: Order) => {
     navigate(`/orders/${order.id}`);
@@ -259,28 +304,38 @@ export default function OrderCenter() {
                 行李信息
               </h3>
               <div className="space-y-3">
-                {currentOrder.luggages.map((luggage, index) => (
-                  <div key={luggage.id} className="flex items-center justify-between p-3 bg-white rounded-lg">
-                    <div>
-                      <span className="text-slate-700 font-medium">
-                        行李 {index + 1}
-                      </span>
-                      <span className="text-slate-500 text-sm ml-2">{getSizeLabel(luggage.size)}</span>
+                {currentOrder.luggages.map((luggage, index) => {
+                  const luggageFee = getLuggageFee(luggage.id);
+                  return (
+                    <div key={luggage.id} className="flex items-center justify-between p-3 bg-white rounded-lg">
+                      <div className="flex items-center gap-3">
+                        {luggage.photoUrl && (
+                          <img
+                            src={luggage.photoUrl}
+                            alt={`行李${index + 1}`}
+                            className="w-12 h-12 rounded-lg object-cover"
+                          />
+                        )}
+                        <div>
+                          <span className="text-slate-700 font-medium">
+                            行李 {index + 1}
+                          </span>
+                          <span className="text-slate-500 text-sm ml-2">{getSizeLabel(luggage.size)}</span>
+                          {luggageFee && (
+                            <div className="text-teal-600 text-sm mt-0.5">
+                              单件费用 {formatPrice(luggageFee.amount)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {luggage.lockerNo && (
+                        <span className="px-3 py-1 bg-teal-50 text-teal-700 rounded-lg text-sm font-medium">
+                          柜位 {luggage.lockerNo}
+                        </span>
+                      )}
                     </div>
-                    {luggage.lockerNo && (
-                      <span className="px-3 py-1 bg-teal-50 text-teal-700 rounded-lg text-sm font-medium">
-                        柜位 {luggage.lockerNo}
-                      </span>
-                    )}
-                    {luggage.photoUrl && (
-                      <img
-                        src={luggage.photoUrl}
-                        alt={`行李${index + 1}`}
-                        className="w-12 h-12 rounded-lg object-cover"
-                      />
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -302,6 +357,191 @@ export default function OrderCenter() {
                 </div>
               </div>
             )}
+
+            <div className="p-4 bg-slate-50 rounded-xl">
+              <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
+                <CreditCard size={16} className="text-teal-600" />
+                实付信息
+              </h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-base">
+                  <span className="text-slate-700 font-medium">已付总额</span>
+                  <span className="text-teal-600 font-bold">¥{currentOrder.paidAmount.toFixed(2)}</span>
+                </div>
+                {feeSummary && (
+                  <>
+                    <div className="flex justify-between pt-2 border-t border-slate-200">
+                      <span className="text-slate-500">寄存费用</span>
+                      <span className="text-slate-700">{formatPrice(feeSummary.originalFee)}</span>
+                    </div>
+                    {feeSummary.renewFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">续存费用</span>
+                        <span className="text-amber-600">{formatPrice(feeSummary.renewFee)}</span>
+                      </div>
+                    )}
+                    {feeSummary.overdueFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">超时补费</span>
+                        <span className="text-red-600">{formatPrice(feeSummary.overdueFee)}</span>
+                      </div>
+                    )}
+                    {feeSummary.insuranceFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">保价费用</span>
+                        <span className="text-slate-700">{formatPrice(feeSummary.insuranceFee)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {currentOrder.additionalAmount && currentOrder.additionalAmount > 0 && (
+                  <div className="flex justify-between pt-2 border-t border-slate-200">
+                    <span className="text-amber-600">额外补费合计</span>
+                    <span className="text-amber-600 font-medium">+{formatPrice(currentOrder.additionalAmount)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl">
+              <h3 className="font-medium text-slate-800 mb-3 flex items-center gap-2">
+                <Receipt size={16} className="text-teal-600" />
+                费用明细
+              </h3>
+              <div className="space-y-3">
+                {currentOrder.feeRecords.map((record) => (
+                  <div key={record.id} className="p-3 bg-white rounded-lg border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded border ${getFeeTypeColor(record.type)}`}>
+                          {getFeeTypeLabel(record.type)}
+                        </span>
+                        <span className="text-slate-500 text-xs">{formatDateTime(record.paidAt)}</span>
+                      </div>
+                      <span className="text-slate-800 font-semibold">{formatPrice(record.amount)}</span>
+                    </div>
+                    {record.description && (
+                      <p className="text-sm text-slate-500 mb-2">{record.description}</p>
+                    )}
+                    {record.detail?.hours && (
+                      <p className="text-xs text-slate-400 mb-2">时长：{record.detail.hours} 小时</p>
+                    )}
+                    {record.detail?.fromTime && record.detail?.toTime && (
+                      <p className="text-xs text-slate-400 mb-2">
+                        {formatDateTime(record.detail.fromTime)} → {formatDateTime(record.detail.toTime)}
+                      </p>
+                    )}
+                    {record.detail?.perLuggage && record.detail.perLuggage.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                        <p className="text-xs text-slate-400 mb-1">按件明细：</p>
+                        {record.detail.perLuggage.map((item, idx) => (
+                          <div key={idx} className="flex justify-between text-xs">
+                            <span className="text-slate-500">
+                              行李{idx + 1} · {getSizeLabel(item.size)}
+                            </span>
+                            <span className="text-slate-600">{formatPrice(item.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {feeSummary && (
+                <div className="mt-4 p-3 bg-white rounded-lg border border-teal-100">
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">寄存费</span>
+                      <span className="text-slate-700">{formatPrice(feeSummary.originalFee)}</span>
+                    </div>
+                    {feeSummary.renewFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">续存费</span>
+                        <span className="text-amber-600">{formatPrice(feeSummary.renewFee)}</span>
+                      </div>
+                    )}
+                    {feeSummary.overdueFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">超时补费</span>
+                        <span className="text-red-600">{formatPrice(feeSummary.overdueFee)}</span>
+                      </div>
+                    )}
+                    {feeSummary.insuranceFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">保价费</span>
+                        <span className="text-slate-700">{formatPrice(feeSummary.insuranceFee)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 border-t border-slate-200">
+                      <span className="text-slate-700 font-medium">已付总额</span>
+                      <span className="text-teal-600 font-bold">¥{currentOrder.paidAmount.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl">
+              <button
+                onClick={() => setShowPriceSnapshot(!showPriceSnapshot)}
+                className="w-full flex items-center justify-between"
+              >
+                <h3 className="font-medium text-slate-800 flex items-center gap-2">
+                  <History size={16} className="text-teal-600" />
+                  下单时价格规则（快照）
+                </h3>
+                {showPriceSnapshot ? (
+                  <ChevronUp size={18} className="text-slate-400" />
+                ) : (
+                  <ChevronDown size={18} className="text-slate-400" />
+                )}
+              </button>
+              {showPriceSnapshot && currentOrder.priceSnapshot && (
+                <div className="mt-4 p-3 bg-white rounded-lg border border-slate-100 space-y-2 text-sm">
+                  <p className="text-xs text-slate-400 mb-2">以下为下单时锁定的价格规则，与当前后台价格相互独立</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">小件价格</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.smallPrice)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">中件价格</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.mediumPrice)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">大件价格</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.largePrice)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">基础价格</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.basePrice)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">小时费率</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.hourlyRate)}/时</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">日封顶</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.dailyCap)}/日</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">节假日附加费</span>
+                      <span className="text-slate-700">{formatPrice(currentOrder.priceSnapshot.holidaySurcharge)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">价格倍率</span>
+                      <span className="text-slate-700">×{currentOrder.priceSnapshot.priceMultiplier}</span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-slate-100">
+                    <span className="text-slate-500">是否节假日</span>
+                    <span className={currentOrder.priceSnapshot.isHoliday ? 'text-amber-600 font-medium' : 'text-slate-600'}>
+                      {currentOrder.priceSnapshot.isHoliday ? '是' : '否'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="p-4 bg-slate-50 rounded-xl">
               <h3 className="font-medium text-slate-800 mb-3">订单信息</h3>
@@ -336,12 +576,6 @@ export default function OrderCenter() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">取消原因</span>
                     <span className="text-red-600">{currentOrder.cancelReason}</span>
-                  </div>
-                )}
-                {currentOrder.additionalAmount && currentOrder.additionalAmount > 0 && (
-                  <div className="flex justify-between pt-2 border-t border-slate-200">
-                    <span className="text-amber-600">续存费用</span>
-                    <span className="text-amber-600 font-medium">+{formatPrice(currentOrder.additionalAmount)}</span>
                   </div>
                 )}
               </div>

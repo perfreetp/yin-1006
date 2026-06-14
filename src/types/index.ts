@@ -49,6 +49,32 @@ export interface LuggageItem {
   pickedAt?: string;
 }
 
+export interface PriceSnapshot {
+  basePrice: number;
+  smallPrice: number;
+  mediumPrice: number;
+  largePrice: number;
+  hourlyRate: number;
+  dailyCap: number;
+  holidaySurcharge: number;
+  priceMultiplier: number;
+  isHoliday: boolean;
+}
+
+export interface FeeRecord {
+  id: string;
+  type: 'original' | 'renew' | 'overdue';
+  amount: number;
+  description: string;
+  paidAt: string;
+  detail?: {
+    fromTime?: string;
+    toTime?: string;
+    hours?: number;
+    perLuggage?: { luggageId: string; size: LuggageSize; amount: number }[];
+  };
+}
+
 export interface Insurance {
   id: string;
   insuredAmount: number;
@@ -69,6 +95,7 @@ export interface Order {
   luggageCount: number;
   luggages: LuggageItem[];
   totalAmount: number;
+  paidAmount: number;
   insuranceAmount: number;
   insurance: Insurance | null;
   pickupCode: string;
@@ -84,6 +111,8 @@ export interface Order {
   additionalAmount?: number;
   rating?: number;
   review?: string;
+  priceSnapshot: PriceSnapshot;
+  feeRecords: FeeRecord[];
 }
 
 export interface FilterParams {
