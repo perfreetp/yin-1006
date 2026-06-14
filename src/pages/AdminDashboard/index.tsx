@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import {
   BarChart3,
   Store as StoreIcon,
@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   ChevronRight,
+  ChevronDown,
   Edit,
   Trash2,
   X,
@@ -41,6 +42,14 @@ const locationTypeOptions: { value: LocationType; label: string }[] = [
   { value: 'other', label: '其他' },
 ];
 
+function getTodayString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -52,7 +61,9 @@ export default function AdminDashboard() {
   const [editingHoliday, setEditingHoliday] = useState<HolidayConfig | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [priceRuleStoreId, setPriceRuleStoreId] = useState<string>('');
+  const [priceRuleEffectiveDate, setPriceRuleEffectiveDate] = useState<string>('');
   const [storeTotalCapacity, setStoreTotalCapacity] = useState<number>(0);
+  const [expandedStoreId, setExpandedStoreId] = useState<string | null>(null);
 
   const { stores, addStore, updateStore, deleteStore, getStoreById } = useStoreStore();
   const {
@@ -67,6 +78,8 @@ export default function AdminDashboard() {
     deleteHoliday,
     settlePayment,
     getPriceRuleByStoreId,
+    getActivePriceRuleByStoreId,
+    getAllPriceRulesByStoreId,
   } = useAdminStore();
 
   const showToast = (message: string) => {
@@ -106,20 +119,29 @@ export default function AdminDashboard() {
   const maxRevenue = Math.max(...chartData.map(d => d.revenue));
   const maxOrders = Math.max(...chartData.map(d => d.orders));
 
-  const deduplicatedPriceRules = useMemo(() => {
-    const seen = new Map<string, PriceRule>();
-    for (const rule of priceRules) {
-      if (!seen.has(rule.storeId)) {
-        seen.set(rule.storeId, rule);
-      }
-    }
-    return Array.from(seen.values());
-  }, [priceRules]);
+  const storePriceRuleInfo = useMemo(() => {
+    return stores.map(store => {
+      const activeRule = getActivePriceRuleByStoreId(store.id);
+      const allRules = getAllPriceRulesByStoreId(store.id);
+      const futureRules = allRules.filter(r => r.effectiveDate > getTodayString());
+      return {
+        storeId: store.id,
+        storeName: store.name,
+        activeRule,
+        allRules,
+        futureRules,
+        futureCount: futureRules.length,
+      };
+    }).filter(info => info.allRules.length > 0);
+  }, [stores, priceRules, getActivePriceRuleByStoreId, getAllPriceRulesByStoreId]);
 
-  const storeHasExistingRule = useMemo(() => {
-    if (!priceRuleStoreId || editingPriceRule) return false;
-    return priceRules.some(r => r.storeId === priceRuleStoreId);
-  }, [priceRuleStoreId, priceRules, editingPriceRule]);
+  const dateHasExistingRule = useMemo(() => {
+    if (!priceRuleStoreId || !priceRuleEffectiveDate) return false;
+    if (editingPriceRule && editingPriceRule.effectiveDate === priceRuleEffectiveDate) return false;
+    return priceRules.some(
+      r => r.storeId === priceRuleStoreId && r.effectiveDate === priceRuleEffectiveDate
+    );
+  }, [priceRuleStoreId, priceRuleEffectiveDate, priceRules, editingPriceRule]);
 
   const effectiveCapacity = useMemo(() => {
     return Math.floor(storeTotalCapacity * maxCapacityMultiplier);
@@ -128,6 +150,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (showPriceModal) {
       setPriceRuleStoreId(editingPriceRule?.storeId || '');
+      setPriceRuleEffectiveDate(editingPriceRule?.effectiveDate || getTodayString());
     }
   }, [showPriceModal, editingPriceRule]);
 
@@ -205,12 +228,14 @@ export default function AdminDashboard() {
       hourlyRate: parseFloat(formData.get('hourlyRate') as string),
       dailyCap: parseFloat(formData.get('dailyCap') as string),
       holidaySurcharge: parseFloat(formData.get('holidaySurcharge') as string) || 0,
+      effectiveDate: formData.get('effectiveDate') as string,
     };
 
     if (editingPriceRule) {
       updatePriceRule(editingPriceRule.id, priceRuleData);
+      const activeRule = getActivePriceRuleByStoreId(priceRuleData.storeId);
       const targetStore = getStoreById(priceRuleData.storeId);
-      if (targetStore) {
+      if (targetStore && activeRule && activeRule.id === editingPriceRule.id) {
         updateStore(targetStore.id, {
           basePrice: priceRuleData.basePrice,
           smallPrice: priceRuleData.smallPrice,
@@ -222,12 +247,13 @@ export default function AdminDashboard() {
       }
       showToast('价格规则更新成功');
     } else {
-      if (storeHasExistingRule) {
-        showToast('该门店已有价格规则，将覆盖原规则');
+      if (dateHasExistingRule) {
+        showToast('该日期已存在规则，将覆盖');
       }
       addPriceRule(priceRuleData);
+      const activeRule = getActivePriceRuleByStoreId(priceRuleData.storeId);
       const targetStore = getStoreById(priceRuleData.storeId);
-      if (targetStore) {
+      if (targetStore && activeRule && activeRule.effectiveDate === priceRuleData.effectiveDate) {
         updateStore(targetStore.id, {
           basePrice: priceRuleData.basePrice,
           smallPrice: priceRuleData.smallPrice,
@@ -237,7 +263,7 @@ export default function AdminDashboard() {
           dailyCap: priceRuleData.dailyCap,
         });
       }
-      if (!storeHasExistingRule) {
+      if (!dateHasExistingRule) {
         showToast('价格规则新增成功');
       }
     }
@@ -245,9 +271,26 @@ export default function AdminDashboard() {
     setEditingPriceRule(null);
   };
 
-  const handleDeletePriceRule = (id: string) => {
+  const handleDeletePriceRule = (rule: PriceRule) => {
+    const allRules = getAllPriceRulesByStoreId(rule.storeId);
+    if (allRules.length <= 1) {
+      showToast('至少保留一条价格规则，无法删除');
+      return;
+    }
     if (confirm('确定要删除这条价格规则吗？')) {
-      deletePriceRule(id);
+      deletePriceRule(rule.id);
+      const activeRule = getActivePriceRuleByStoreId(rule.storeId);
+      const targetStore = getStoreById(rule.storeId);
+      if (targetStore && activeRule) {
+        updateStore(targetStore.id, {
+          basePrice: activeRule.basePrice,
+          smallPrice: activeRule.smallPrice,
+          mediumPrice: activeRule.mediumPrice,
+          largePrice: activeRule.largePrice,
+          hourlyRate: activeRule.hourlyRate,
+          dailyCap: activeRule.dailyCap,
+        });
+      }
       showToast('价格规则已删除');
     }
   };
@@ -577,53 +620,180 @@ export default function AdminDashboard() {
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">门店</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">小件</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">中件</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">大件</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">小时费率</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">每日封顶</th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase">联动状态</th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase">操作</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase w-10"></th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">门店</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">小件</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">中件</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">大件</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">小时费率</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">每日封顶</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">生效日期</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">未来版本</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {deduplicatedPriceRules.map(rule => (
-                    <tr key={rule.id} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-4 font-medium text-slate-800 text-sm">
-                        {getStoreNameById(rule.storeId)}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.smallPrice)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.mediumPrice)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.largePrice)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.hourlyRate)}/时</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.dailyCap)}</td>
-                      <td className="px-6 py-4 text-center">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700">
-                          <Check size={12} />
-                          已联动
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                  {storePriceRuleInfo.map(info => (
+                    <Fragment key={info.storeId}>
+                      <tr className="hover:bg-slate-50/50">
+                        <td className="px-3 py-4">
                           <button
-                            onClick={() => {
-                              setEditingPriceRule(rule);
-                              setShowPriceModal(true);
-                            }}
-                            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                            onClick={() => setExpandedStoreId(
+                              expandedStoreId === info.storeId ? null : info.storeId
+                            )}
+                            className="p-1 hover:bg-slate-100 rounded transition-colors"
                           >
-                            <Edit size={14} className="text-slate-500" />
+                            {expandedStoreId === info.storeId ? (
+                              <ChevronDown size={16} className="text-slate-500" />
+                            ) : (
+                              <ChevronRight size={16} className="text-slate-500" />
+                            )}
                           </button>
-                          <button
-                            onClick={() => handleDeletePriceRule(rule.id)}
-                            className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={14} className="text-red-500" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-4 py-4 font-medium text-slate-800 text-sm">
+                          {info.storeName}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 text-right">
+                          {info.activeRule ? formatPrice(info.activeRule.smallPrice) : '-'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 text-right">
+                          {info.activeRule ? formatPrice(info.activeRule.mediumPrice) : '-'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 text-right">
+                          {info.activeRule ? formatPrice(info.activeRule.largePrice) : '-'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 text-right">
+                          {info.activeRule ? `${formatPrice(info.activeRule.hourlyRate)}/时` : '-'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 text-right">
+                          {info.activeRule ? formatPrice(info.activeRule.dailyCap) : '-'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-600 text-center">
+                          {info.activeRule ? info.activeRule.effectiveDate : '-'}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          {info.futureCount > 0 ? (
+                            <button
+                              onClick={() => setExpandedStoreId(
+                                expandedStoreId === info.storeId ? null : info.storeId
+                              )}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                            >
+                              {info.futureCount} 条待生效
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-400">无</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingPriceRule(info.activeRule);
+                                setShowPriceModal(true);
+                              }}
+                              className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                              disabled={!info.activeRule}
+                            >
+                              <Edit size={14} className="text-slate-500" />
+                            </button>
+                            <button
+                              onClick={() => info.activeRule && handleDeletePriceRule(info.activeRule)}
+                              className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                              disabled={!info.activeRule || info.allRules.length <= 1}
+                            >
+                              <Trash2 size={14} className={info.allRules.length <= 1 ? 'text-slate-300' : 'text-red-500'} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedStoreId === info.storeId && (
+                        <tr key={`${info.storeId}-expanded`}>
+                          <td colSpan={10} className="bg-slate-50/50 px-6 py-0">
+                            <div className="py-3 pl-6">
+                              <p className="text-xs font-medium text-slate-500 mb-2">全部版本（按生效日期倒序）</p>
+                              <table className="w-full">
+                                <thead className="bg-white">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-400 uppercase">生效日期</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-400 uppercase">小件</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-400 uppercase">中件</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-400 uppercase">大件</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-400 uppercase">小时费率</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-400 uppercase">每日封顶</th>
+                                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-400 uppercase">节假日附加</th>
+                                    <th className="px-4 py-2 text-center text-xs font-medium text-slate-400 uppercase">状态</th>
+                                    <th className="px-4 py-2 text-center text-xs font-medium text-slate-400 uppercase">操作</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {info.allRules.map(rule => {
+                                    const isActive = info.activeRule?.id === rule.id;
+                                    const isFuture = rule.effectiveDate > getTodayString();
+                                    return (
+                                      <tr key={rule.id} className="bg-white hover:bg-slate-50/50">
+                                        <td className="px-4 py-3 text-sm text-slate-600">
+                                          {rule.effectiveDate}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-slate-600 text-right">
+                                          {formatPrice(rule.smallPrice)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-slate-600 text-right">
+                                          {formatPrice(rule.mediumPrice)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-slate-600 text-right">
+                                          {formatPrice(rule.largePrice)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-slate-600 text-right">
+                                          {formatPrice(rule.hourlyRate)}/时
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-slate-600 text-right">
+                                          {formatPrice(rule.dailyCap)}
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-slate-600 text-right">
+                                          {formatPrice(rule.holidaySurcharge)}
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full ${
+                                            isActive
+                                              ? 'bg-emerald-100 text-emerald-700'
+                                              : isFuture
+                                              ? 'bg-amber-100 text-amber-700'
+                                              : 'bg-slate-100 text-slate-600'
+                                          }`}>
+                                            {isActive ? '已生效' : isFuture ? '待生效' : '历史版本'}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-center">
+                                          <div className="flex items-center justify-center gap-1">
+                                            <button
+                                              onClick={() => {
+                                                setEditingPriceRule(rule);
+                                                setShowPriceModal(true);
+                                              }}
+                                              className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                                            >
+                                              <Edit size={14} className="text-slate-500" />
+                                            </button>
+                                            <button
+                                              onClick={() => handleDeletePriceRule(rule)}
+                                              className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                                              disabled={info.allRules.length <= 1}
+                                            >
+                                              <Trash2 size={14} className={info.allRules.length <= 1 ? 'text-slate-300' : 'text-red-500'} />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -971,9 +1141,20 @@ export default function AdminDashboard() {
                     <option key={store.id} value={store.id}>{store.name}</option>
                   ))}
                 </select>
-                {storeHasExistingRule && (
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">生效日期</label>
+                <input
+                  type="date"
+                  name="effectiveDate"
+                  value={priceRuleEffectiveDate}
+                  onChange={e => setPriceRuleEffectiveDate(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                  required
+                />
+                {dateHasExistingRule && (
                   <p className="mt-1 text-xs text-amber-600 font-medium">
-                    该门店已有价格规则，将覆盖原规则
+                    该日期已存在规则，将覆盖
                   </p>
                 )}
               </div>

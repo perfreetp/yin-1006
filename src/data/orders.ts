@@ -12,8 +12,8 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-15T18:00:00',
     luggageCount: 2,
     luggages: [
-      { id: 'lug-001', size: 'medium', lockerNo: 'A-12', storedAt: '2024-01-15T09:15:00' },
-      { id: 'lug-002', size: 'small', lockerNo: 'A-13', storedAt: '2024-01-15T09:15:00' },
+      { id: 'lug-001', size: 'medium', lockerNo: 'A-12', storedAt: '2024-01-15T09:15:00', remark: '黑色拉杆箱', insurance: { insuredAmount: 300, premium: 3 } },
+      { id: 'lug-002', size: 'small', lockerNo: 'A-13', storedAt: '2024-01-15T09:15:00', remark: '蓝色双肩包', insurance: { insuredAmount: 200, premium: 2 } },
     ],
     totalAmount: 45,
     paidAmount: 45,
@@ -43,15 +43,15 @@ export const mockOrders: Order[] = [
       {
         id: 'fee-001',
         type: 'original',
-        amount: 40,
-        description: '寄存费用',
+        amount: 45,
+        description: '寄存及保险费用',
         paidAt: '2024-01-14T20:32:00',
         detail: {
           fromTime: '2024-01-15T09:00:00',
           toTime: '2024-01-15T18:00:00',
           perLuggage: [
-            { luggageId: 'lug-001', size: 'medium', amount: 24 },
-            { luggageId: 'lug-002', size: 'small', amount: 16 },
+            { luggageId: 'lug-001', size: 'medium', amount: 24, insurancePremium: 3 },
+            { luggageId: 'lug-002', size: 'small', amount: 16, insurancePremium: 2 },
           ],
         },
       },
@@ -68,7 +68,7 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-14T20:00:00',
     luggageCount: 1,
     luggages: [
-      { id: 'lug-003', size: 'large', lockerNo: 'B-05', storedAt: '2024-01-14T10:20:00', pickedAt: '2024-01-14T19:45:00' },
+      { id: 'lug-003', size: 'large', lockerNo: 'B-05', storedAt: '2024-01-14T10:20:00', pickedAt: '2024-01-14T19:45:00', remark: '银色大行李箱' },
     ],
     totalAmount: 35,
     paidAmount: 35,
@@ -101,7 +101,7 @@ export const mockOrders: Order[] = [
           fromTime: '2024-01-14T10:00:00',
           toTime: '2024-01-14T20:00:00',
           perLuggage: [
-            { luggageId: 'lug-003', size: 'large', amount: 35 },
+            { luggageId: 'lug-003', size: 'large', amount: 35, insurancePremium: 0 },
           ],
         },
       },
@@ -118,9 +118,9 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-16T21:00:00',
     luggageCount: 3,
     luggages: [
-      { id: 'lug-004', size: 'medium' },
-      { id: 'lug-005', size: 'medium' },
-      { id: 'lug-006', size: 'small' },
+      { id: 'lug-004', size: 'medium', remark: '棕色登机箱', insurance: { insuredAmount: 400, premium: 4 } },
+      { id: 'lug-005', size: 'medium', remark: '灰色背包', insurance: { insuredAmount: 400, premium: 4 } },
+      { id: 'lug-006', size: 'small', remark: '手提袋', insurance: { insuredAmount: 200, premium: 2 } },
     ],
     totalAmount: 85,
     paidAmount: 85,
@@ -149,16 +149,16 @@ export const mockOrders: Order[] = [
       {
         id: 'fee-003',
         type: 'original',
-        amount: 75,
-        description: '寄存费用',
+        amount: 85,
+        description: '寄存及保险费用',
         paidAt: '2024-01-15T12:05:00',
         detail: {
           fromTime: '2024-01-16T08:30:00',
           toTime: '2024-01-16T21:00:00',
           perLuggage: [
-            { luggageId: 'lug-004', size: 'medium', amount: 28.125 },
-            { luggageId: 'lug-005', size: 'medium', amount: 28.125 },
-            { luggageId: 'lug-006', size: 'small', amount: 18.75 },
+            { luggageId: 'lug-004', size: 'medium', amount: 28.125, insurancePremium: 4 },
+            { luggageId: 'lug-005', size: 'medium', amount: 28.125, insurancePremium: 4 },
+            { luggageId: 'lug-006', size: 'small', amount: 18.75, insurancePremium: 2 },
           ],
         },
       },
@@ -175,7 +175,7 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-10T20:00:00',
     luggageCount: 1,
     luggages: [
-      { id: 'lug-007', size: 'medium' },
+      { id: 'lug-007', size: 'medium', remark: '黑色行李箱' },
     ],
     totalAmount: 20,
     paidAmount: 20,
@@ -208,7 +208,7 @@ export const mockOrders: Order[] = [
           fromTime: '2024-01-10T14:00:00',
           toTime: '2024-01-10T20:00:00',
           perLuggage: [
-            { luggageId: 'lug-007', size: 'medium', amount: 20 },
+            { luggageId: 'lug-007', size: 'medium', amount: 20, insurancePremium: 0 },
           ],
         },
       },
@@ -225,8 +225,8 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-12T18:00:00',
     luggageCount: 2,
     luggages: [
-      { id: 'lug-008', size: 'small', lockerNo: 'C-03', storedAt: '2024-01-12T09:10:00' },
-      { id: 'lug-009', size: 'medium', lockerNo: 'C-04', storedAt: '2024-01-12T09:10:00' },
+      { id: 'lug-008', size: 'small', lockerNo: 'C-03', storedAt: '2024-01-12T09:10:00', remark: '红色双肩包' },
+      { id: 'lug-009', size: 'medium', lockerNo: 'C-04', storedAt: '2024-01-12T09:10:00', remark: '紫色登机箱' },
     ],
     totalAmount: 30,
     paidAmount: 30,
@@ -258,8 +258,8 @@ export const mockOrders: Order[] = [
           fromTime: '2024-01-12T09:00:00',
           toTime: '2024-01-12T18:00:00',
           perLuggage: [
-            { luggageId: 'lug-008', size: 'small', amount: 12 },
-            { luggageId: 'lug-009', size: 'medium', amount: 18 },
+            { luggageId: 'lug-008', size: 'small', amount: 12, insurancePremium: 0 },
+            { luggageId: 'lug-009', size: 'medium', amount: 18, insurancePremium: 0 },
           ],
         },
       },
@@ -276,7 +276,7 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-15T22:00:00',
     luggageCount: 1,
     luggages: [
-      { id: 'lug-010', size: 'large', lockerNo: 'A-01', storedAt: '2024-01-15T08:15:00' },
+      { id: 'lug-010', size: 'large', lockerNo: 'A-01', storedAt: '2024-01-15T08:15:00', remark: '大型运动包' },
     ],
     totalAmount: 30,
     paidAmount: 30,
@@ -308,7 +308,7 @@ export const mockOrders: Order[] = [
           fromTime: '2024-01-15T08:00:00',
           toTime: '2024-01-15T22:00:00',
           perLuggage: [
-            { luggageId: 'lug-010', size: 'large', amount: 30 },
+            { luggageId: 'lug-010', size: 'large', amount: 30, insurancePremium: 0 },
           ],
         },
       },
@@ -325,8 +325,8 @@ export const mockOrders: Order[] = [
     endTime: '2024-01-15T20:00:00',
     luggageCount: 2,
     luggages: [
-      { id: 'lug-011', size: 'medium' },
-      { id: 'lug-012', size: 'medium' },
+      { id: 'lug-011', size: 'medium', remark: '藏青色行李箱', insurance: { insuredAmount: 250, premium: 2.5 } },
+      { id: 'lug-012', size: 'medium', remark: '黑色电脑包', insurance: { insuredAmount: 250, premium: 2.5 } },
     ],
     totalAmount: 40,
     paidAmount: 40,
@@ -355,15 +355,15 @@ export const mockOrders: Order[] = [
       {
         id: 'fee-007',
         type: 'original',
-        amount: 35,
-        description: '寄存费用',
+        amount: 40,
+        description: '寄存及保险费用',
         paidAt: '2024-01-15T10:03:00',
         detail: {
           fromTime: '2024-01-15T14:00:00',
           toTime: '2024-01-15T20:00:00',
           perLuggage: [
-            { luggageId: 'lug-011', size: 'medium', amount: 17.5 },
-            { luggageId: 'lug-012', size: 'medium', amount: 17.5 },
+            { luggageId: 'lug-011', size: 'medium', amount: 17.5, insurancePremium: 2.5 },
+            { luggageId: 'lug-012', size: 'medium', amount: 17.5, insurancePremium: 2.5 },
           ],
         },
       },

@@ -1,7 +1,10 @@
 import { Link } from 'react-router-dom';
 import { Star, Clock, MapPin, Package, Shield } from 'lucide-react';
+import { useMemo } from 'react';
 import type { Store, LocationType } from '@/types';
 import { formatPrice, formatDistance } from '@/utils/format';
+import { useStoreStore } from '@/store/useStoreStore';
+import { useAdminStore } from '@/store/useAdminStore';
 
 const locationTypeLabels: Record<LocationType, { icon: string; label: string; color: string }> = {
   station: { icon: '🚄', label: '车站', color: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -16,7 +19,27 @@ interface StoreCardProps {
 }
 
 export default function StoreCard({ store }: StoreCardProps) {
-  const capacityPercent = (store.availableCapacity / store.totalCapacity) * 100;
+  const { getAvailableCapacityForDate, getEffectiveCapacity } = useStoreStore();
+  const { holidayConfigs } = useAdminStore();
+
+  const { availableCapacity, effectiveTotal, isHoliday, capacityMultiplier } = useMemo(() => {
+    const today = new Date().toISOString();
+    const available = getAvailableCapacityForDate(store.id, today);
+    const effective = getEffectiveCapacity(store.id, today);
+    
+    const dateStr = new Date().toISOString().split('T')[0];
+    const holidayConfig = holidayConfigs.find(h => h.date === dateStr);
+    const multiplier = holidayConfig?.capacityMultiplier || 1;
+    
+    return {
+      availableCapacity: available,
+      effectiveTotal: effective,
+      isHoliday: multiplier !== 1,
+      capacityMultiplier: multiplier,
+    };
+  }, [store.id, getAvailableCapacityForDate, getEffectiveCapacity, holidayConfigs]);
+
+  const capacityPercent = effectiveTotal > 0 ? (availableCapacity / effectiveTotal) * 100 : 0;
   const capacityColor = capacityPercent > 50 ? 'bg-teal-500' : capacityPercent > 20 ? 'bg-amber-500' : 'bg-red-500';
   const locationType = locationTypeLabels[store.locationType];
 
@@ -84,9 +107,16 @@ export default function StoreCard({ store }: StoreCardProps) {
                 <Package size={14} className="text-slate-400" />
                 <span>剩余容量</span>
               </div>
-              <span className="text-sm font-medium text-slate-700">
-                {store.availableCapacity}/{store.totalCapacity} 格
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-700">
+                  剩余 {availableCapacity} / {effectiveTotal} 柜位
+                </span>
+                {isHoliday && (
+                  <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+                    节假日 x{capacityMultiplier}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
               <div

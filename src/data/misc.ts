@@ -43,6 +43,19 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 5,
     dailyCap: 30,
     holidaySurcharge: 1.3,
+    effectiveDate: '2024-01-01',
+  },
+  {
+    id: 'pr-001-future',
+    storeId: 'store-001',
+    basePrice: 18,
+    smallPrice: 12,
+    mediumPrice: 18,
+    largePrice: 30,
+    hourlyRate: 6,
+    dailyCap: 36,
+    holidaySurcharge: 1.4,
+    effectiveDate: '2025-07-01',
   },
   {
     id: 'pr-002',
@@ -54,6 +67,7 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 4,
     dailyCap: 25,
     holidaySurcharge: 1.2,
+    effectiveDate: '2024-01-01',
   },
   {
     id: 'pr-003',
@@ -65,6 +79,19 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 6,
     dailyCap: 35,
     holidaySurcharge: 1.3,
+    effectiveDate: '2024-01-01',
+  },
+  {
+    id: 'pr-003-future',
+    storeId: 'store-003',
+    basePrice: 22,
+    smallPrice: 15,
+    mediumPrice: 22,
+    largePrice: 35,
+    hourlyRate: 7,
+    dailyCap: 42,
+    holidaySurcharge: 1.4,
+    effectiveDate: '2025-07-01',
   },
   {
     id: 'pr-004',
@@ -76,6 +103,7 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 10,
     dailyCap: 60,
     holidaySurcharge: 1.5,
+    effectiveDate: '2024-01-01',
   },
   {
     id: 'pr-005',
@@ -87,6 +115,7 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 3,
     dailyCap: 20,
     holidaySurcharge: 1.1,
+    effectiveDate: '2024-01-01',
   },
   {
     id: 'pr-006',
@@ -98,6 +127,19 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 8,
     dailyCap: 50,
     holidaySurcharge: 1.5,
+    effectiveDate: '2024-01-01',
+  },
+  {
+    id: 'pr-006-future',
+    storeId: 'store-006',
+    basePrice: 30,
+    smallPrice: 20,
+    mediumPrice: 30,
+    largePrice: 50,
+    hourlyRate: 10,
+    dailyCap: 60,
+    holidaySurcharge: 1.6,
+    effectiveDate: '2025-07-01',
   },
   {
     id: 'pr-007',
@@ -109,6 +151,7 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 5,
     dailyCap: 32,
     holidaySurcharge: 1.2,
+    effectiveDate: '2024-01-01',
   },
   {
     id: 'pr-008',
@@ -120,6 +163,7 @@ export const mockPriceRules: PriceRule[] = [
     hourlyRate: 7,
     dailyCap: 40,
     holidaySurcharge: 1.3,
+    effectiveDate: '2024-01-01',
   },
 ];
 

@@ -46,7 +46,7 @@ export default function StoreWorkbench() {
     payOverdueFee,
     getOrderByPickupCode,
   } = useOrderStore();
-  const { getStoreById, occupyCapacity, releaseCapacity, getEffectiveCapacity } = useStoreStore();
+  const { getStoreById, occupyCapacity, releaseCapacity, getEffectiveCapacity, getAvailableCapacityForDate } = useStoreStore();
 
   const [activeTab, setActiveTab] = useState<'stored' | 'today'>('stored');
   const [activeModal, setActiveModal] = useState<ModalType>(null);
@@ -85,7 +85,9 @@ export default function StoreWorkbench() {
     return storedOrders.reduce((sum, o) => sum + o.luggageCount, 0);
   }, [storedOrders]);
 
-  const effectiveCapacity = getEffectiveCapacity(storeId);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const effectiveCapacity = getEffectiveCapacity(storeId, todayStr);
+  const availableCapacity = getAvailableCapacityForDate(storeId, todayStr);
   const holidayMultiplier = useMemo(() => {
     const holidays = useAdminStore.getState().holidayConfigs;
     const today = new Date().toISOString();
@@ -115,14 +117,16 @@ export default function StoreWorkbench() {
   };
 
   const getPriceParams = () => {
-    const priceRule = useAdminStore.getState().getPriceRuleByStoreId(storeId);
+    const priceRule = useAdminStore.getState().getActivePriceRuleByStoreId(storeId);
     const smallPrice = priceRule ? priceRule.smallPrice : (store?.smallPrice || 10);
     const mediumPrice = priceRule ? priceRule.mediumPrice : (store?.mediumPrice || 20);
     const largePrice = priceRule ? priceRule.largePrice : (store?.largePrice || 35);
     const hourlyRate = priceRule ? priceRule.hourlyRate : (store?.hourlyRate || 5);
     const dailyCap = priceRule ? priceRule.dailyCap : (store?.dailyCap || 30);
     const holidaySurcharge = priceRule ? priceRule.holidaySurcharge : 0;
-    return { smallPrice, mediumPrice, largePrice, hourlyRate, dailyCap, holidaySurcharge };
+    const effectiveDate = priceRule?.effectiveDate;
+    const hasActiveRule = !!priceRule;
+    return { smallPrice, mediumPrice, largePrice, hourlyRate, dailyCap, holidaySurcharge, effectiveDate, hasActiveRule };
   };
 
   const getHolidayMultiplier = (startTime: string, endTime: string) => {
@@ -284,6 +288,12 @@ export default function StoreWorkbench() {
     const hasPhotos = photoUrls.some(p => p.trim());
     if (!hasPhotos) {
       if (!confirm('未上传行李照片，是否继续入库？')) return;
+    }
+
+    const availableToday = getAvailableCapacityForDate(storeId, todayStr);
+    if (foundOrder.luggageCount > availableToday) {
+      alert(`今日容量不足！今日可用容量仅 ${availableToday} 件，无法入库 ${foundOrder.luggageCount} 件行李`);
+      return;
     }
 
     storeLuggage(foundOrder.id, lockerInputs, photoUrls);
@@ -515,11 +525,14 @@ export default function StoreWorkbench() {
                 <Layers size={16} />
               </div>
               <span className="text-teal-100 text-sm">
-                在柜容量{holidayMultiplier > 1 ? `（节假日x${holidayMultiplier}）` : ''}
+                在柜 / 有效容量{holidayMultiplier > 1 ? `（节假日x${holidayMultiplier}）` : ''}
               </span>
             </div>
             <div className="text-2xl font-bold">
-              {inCabinetLuggageCount}/{effectiveCapacity}
+              {inCabinetLuggageCount} / {effectiveCapacity}
+            </div>
+            <div className="text-xs text-teal-200 mt-1">
+              今日可用 {availableCapacity} 件
             </div>
           </div>
         </div>
@@ -724,7 +737,14 @@ export default function StoreWorkbench() {
                     <>
                       <div className="mb-4">
                         <p className="text-sm text-slate-500 mb-1">订单号</p>
-                        <p className="font-bold text-slate-800">{order.orderNo}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-slate-800">{order.orderNo}</p>
+                          {getPriceParams().hasActiveRule && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
+                              当前生效价格规则（{getPriceParams().effectiveDate} 生效）
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                         <p className="text-sm text-amber-700 font-medium mb-3 flex items-center gap-1">
@@ -1020,7 +1040,14 @@ export default function StoreWorkbench() {
                 <>
                   <div className="mb-4">
                     <p className="text-sm text-slate-500 mb-1">订单号</p>
-                    <p className="font-bold text-slate-800">{selectedOrder.orderNo}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-slate-800">{selectedOrder.orderNo}</p>
+                      {getPriceParams().hasActiveRule && (
+                        <span className="px-2 py-0.5 text-xs font-medium bg-teal-100 text-teal-700 rounded-full">
+                          当前生效价格规则（{getPriceParams().effectiveDate} 生效）
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="mb-4 p-4 bg-slate-50 rounded-xl">
                     <p className="text-sm text-slate-500 mb-2">当前到期时间</p>

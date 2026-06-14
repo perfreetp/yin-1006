@@ -1,14 +1,34 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, MapPin, Clock, Star, Package, Locate } from 'lucide-react';
 import { useStoreStore } from '@/store/useStoreStore';
+import { useAdminStore } from '@/store/useAdminStore';
 import { formatPrice, formatDistance } from '@/utils/format';
 import type { Store } from '@/types';
 
 export default function MapSearch() {
-  const { stores, selectStore, selectedStore } = useStoreStore();
+  const { stores, selectStore, selectedStore, getAvailableCapacityForDate, getEffectiveCapacity } = useStoreStore();
+  const { holidayConfigs } = useAdminStore();
   const [searchKeyword, setSearchKeyword] = useState('');
   const [bottomSheetOpen, setBottomSheetOpen] = useState(true);
+
+  const selectedStoreCapacity = useMemo(() => {
+    if (!selectedStore) return null;
+    const today = new Date().toISOString();
+    const available = getAvailableCapacityForDate(selectedStore.id, today);
+    const effective = getEffectiveCapacity(selectedStore.id, today);
+    
+    const dateStr = new Date().toISOString().split('T')[0];
+    const holidayConfig = holidayConfigs.find(h => h.date === dateStr);
+    const multiplier = holidayConfig?.capacityMultiplier || 1;
+    
+    return {
+      availableCapacity: available,
+      effectiveTotal: effective,
+      isHoliday: multiplier !== 1,
+      capacityMultiplier: multiplier,
+    };
+  }, [selectedStore, getAvailableCapacityForDate, getEffectiveCapacity, holidayConfigs]);
 
   const filteredStores = stores.filter(store =>
     store.name.toLowerCase().includes(searchKeyword.toLowerCase()) ||
@@ -141,6 +161,19 @@ export default function MapSearch() {
                       <span>{formatDistance(selectedStore.distance)}</span>
                     </div>
                   </div>
+                  {selectedStoreCapacity && (
+                    <div className="flex items-center gap-2 mt-3">
+                      <div className="flex items-center gap-1 text-sm text-slate-600">
+                        <Package size={14} className="text-slate-400" />
+                        <span>剩余 {selectedStoreCapacity.availableCapacity} / {selectedStoreCapacity.effectiveTotal} 柜位</span>
+                      </div>
+                      {selectedStoreCapacity.isHoliday && (
+                        <span className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+                          节假日 x{selectedStoreCapacity.capacityMultiplier}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">

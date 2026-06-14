@@ -47,6 +47,11 @@ export interface LuggageItem {
   photoUrl?: string;
   storedAt?: string;
   pickedAt?: string;
+  remark?: string;
+  insurance?: {
+    insuredAmount: number;
+    premium: number;
+  };
 }
 
 export interface PriceSnapshot {
@@ -71,7 +76,7 @@ export interface FeeRecord {
     fromTime?: string;
     toTime?: string;
     hours?: number;
-    perLuggage?: { luggageId: string; size: LuggageSize; amount: number }[];
+    perLuggage?: { luggageId: string; size: LuggageSize; amount: number; insurancePremium?: number }[];
   };
 }
 
@@ -184,6 +189,7 @@ export interface PriceRule {
   hourlyRate: number;
   dailyCap: number;
   holidaySurcharge: number;
+  effectiveDate: string;
 }
 
 export interface HolidayConfig {

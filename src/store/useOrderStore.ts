@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Order, OrderStatus, LuggageItem, Insurance, PriceSnapshot, FeeRecord, LuggageSize } from '@/types';
 import { mockOrders } from '@/data/orders';
 import { generateOrderNo, generatePickupCode } from '@/utils/format';
+import { useStoreStore as _useStoreStore } from './useStoreStore';
 
 interface CreateOrderParams {
   userId: string;
@@ -22,7 +23,7 @@ interface RenewFeeDetail {
   fromTime: string;
   toTime: string;
   hours?: number;
-  perLuggage?: { luggageId: string; size: LuggageSize; amount: number }[];
+  perLuggage?: { luggageId: string; size: LuggageSize; amount: number; insurancePremium?: number }[];
 }
 
 interface OrderState {
@@ -48,10 +49,10 @@ interface OrderState {
 }
 
 const splitLuggageFees = (
-  luggages: { id: string; size: LuggageSize }[],
+  luggages: { id: string; size: LuggageSize; insurance?: { premium: number } }[],
   totalFee: number,
   priceSnapshot: PriceSnapshot
-): { luggageId: string; size: LuggageSize; amount: number }[] => {
+): { luggageId: string; size: LuggageSize; amount: number; insurancePremium: number }[] => {
   const sizePrices: Record<LuggageSize, number> = {
     small: priceSnapshot.smallPrice,
     medium: priceSnapshot.mediumPrice,
@@ -61,13 +62,19 @@ const splitLuggageFees = (
   const totalUnitPrice = luggages.reduce((sum, l) => sum + sizePrices[l.size], 0);
   if (totalUnitPrice === 0) {
     const avg = totalFee / luggages.length;
-    return luggages.map(l => ({ luggageId: l.id, size: l.size, amount: avg }));
+    return luggages.map(l => ({
+      luggageId: l.id,
+      size: l.size,
+      amount: avg,
+      insurancePremium: l.insurance?.premium || 0,
+    }));
   }
 
   return luggages.map(l => ({
     luggageId: l.id,
     size: l.size,
     amount: (sizePrices[l.size] / totalUnitPrice) * totalFee,
+    insurancePremium: l.insurance?.premium || 0,
   }));
 };
 
@@ -103,14 +110,20 @@ export const useOrderStore = create<OrderState>()(
 
       createOrder: (orderData) => {
         const now = new Date().toISOString();
-        const storageFee = orderData.totalAmount - orderData.insuranceAmount;
         const luggagesWithId = orderData.luggages.map((l, i) => ({
           ...l,
           id: `lug-${Date.now()}-${i}`,
         }));
 
+        const calculatedInsuranceAmount = luggagesWithId.reduce(
+          (sum, l) => sum + (l.insurance?.premium || 0),
+          0
+        );
+        const insuranceAmount = orderData.insuranceAmount || calculatedInsuranceAmount;
+        const storageFee = orderData.totalAmount - insuranceAmount;
+
         const perLuggage = splitLuggageFees(
-          luggagesWithId.map(l => ({ id: l.id, size: l.size })),
+          luggagesWithId.map(l => ({ id: l.id, size: l.size, insurance: l.insurance })),
           storageFee,
           orderData.priceSnapshot
         );
@@ -118,8 +131,8 @@ export const useOrderStore = create<OrderState>()(
         const originalFee: FeeRecord = {
           id: `fee-${Date.now()}-0`,
           type: 'original',
-          amount: storageFee,
-          description: '寄存费用',
+          amount: orderData.totalAmount,
+          description: '寄存及保险费用',
           paidAt: now,
           detail: {
             fromTime: orderData.startTime,
@@ -141,7 +154,7 @@ export const useOrderStore = create<OrderState>()(
           luggages: luggagesWithId,
           totalAmount: orderData.totalAmount,
           paidAmount: 0,
-          insuranceAmount: orderData.insuranceAmount,
+          insuranceAmount,
           insurance: orderData.insurance,
           pickupCode: generatePickupCode(),
           createdAt: now,
@@ -256,6 +269,15 @@ export const useOrderStore = create<OrderState>()(
 
       cancelOrder: (orderId, reason) => {
         const now = new Date().toISOString();
+        const order = get().orders.find(o => o.id === orderId);
+
+        if (order && (order.status === 'stored' || order.status === 'overdue')) {
+          const storeState = _useStoreStore.getState();
+          if (storeState.releaseCapacity) {
+            storeState.releaseCapacity(order.storeId, order.luggageCount);
+          }
+        }
+
         set(state => ({
           orders: state.orders.map(o =>
             o.id === orderId
