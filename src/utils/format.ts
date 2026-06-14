@@ -1,0 +1,178 @@
+export const formatPrice = (price: number): string => {
+  return `¥${price.toFixed(2)}`;
+};
+
+export const formatDateTime = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}`;
+};
+
+export const formatDate = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const formatTime = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${hour}:${minute}`;
+};
+
+export const formatDuration = (start: string, end: string): string => {
+  const startDate = new Date(start).getTime();
+  const endDate = new Date(end).getTime();
+  const diffMs = endDate - startDate;
+  const diffHours = Math.ceil(diffMs / (1000 * 60 * 60));
+  if (diffHours < 24) {
+    return `${diffHours}小时`;
+  }
+  const days = Math.floor(diffHours / 24);
+  const hours = diffHours % 24;
+  return hours > 0 ? `${days}天${hours}小时` : `${days}天`;
+};
+
+export const formatDistance = (distance: number): string => {
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)}m`;
+  }
+  return `${distance.toFixed(1)}km`;
+};
+
+export const generatePickupCode = (): string => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
+export const generateOrderNo = (): string => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `XC${year}${month}${day}${random}`;
+};
+
+export const getSizeLabel = (size: string): string => {
+  const sizeMap: Record<string, string> = {
+    small: '小件',
+    medium: '中件',
+    large: '大件',
+  };
+  return sizeMap[size] || size;
+};
+
+export const getSizeDescription = (size: string): string => {
+  const sizeMap: Record<string, string> = {
+    small: '背包/手提包',
+    medium: '登机箱/20寸以下',
+    large: '大行李箱/24寸以上',
+  };
+  return sizeMap[size] || '';
+};
+
+export const getStatusLabel = (status: string): string => {
+  const statusMap: Record<string, string> = {
+    pending: '待支付',
+    paid: '已支付',
+    stored: '寄存中',
+    picked: '已取件',
+    cancelled: '已取消',
+    overdue: '已超时',
+  };
+  return statusMap[status] || status;
+};
+
+export const getStatusColor = (status: string): string => {
+  const colorMap: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-700',
+    paid: 'bg-blue-100 text-blue-700',
+    stored: 'bg-teal-100 text-teal-700',
+    picked: 'bg-gray-100 text-gray-600',
+    cancelled: 'bg-red-100 text-red-700',
+    overdue: 'bg-orange-100 text-orange-700',
+  };
+  return colorMap[status] || 'bg-gray-100 text-gray-600';
+};
+
+export const getTicketTypeLabel = (type: string): string => {
+  const typeMap: Record<string, string> = {
+    cancel: '取消申请',
+    lost: '遗失申报',
+    compensation: '赔付申请',
+    review: '差评回访',
+  };
+  return typeMap[type] || type;
+};
+
+export const getTicketStatusLabel = (status: string): string => {
+  const statusMap: Record<string, string> = {
+    pending: '待处理',
+    processing: '处理中',
+    resolved: '已解决',
+    closed: '已关闭',
+  };
+  return statusMap[status] || status;
+};
+
+export const getTicketStatusColor = (status: string): string => {
+  const colorMap: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-700',
+    processing: 'bg-blue-100 text-blue-700',
+    resolved: 'bg-teal-100 text-teal-700',
+    closed: 'bg-gray-100 text-gray-600',
+  };
+  return colorMap[status] || 'bg-gray-100 text-gray-600';
+};
+
+export const getPriorityLabel = (priority: string): string => {
+  const priorityMap: Record<string, string> = {
+    low: '低',
+    medium: '中',
+    high: '高',
+  };
+  return priorityMap[priority] || priority;
+};
+
+export const getPriorityColor = (priority: string): string => {
+  const colorMap: Record<string, string> = {
+    low: 'bg-slate-100 text-slate-600',
+    medium: 'bg-amber-100 text-amber-700',
+    high: 'bg-red-100 text-red-700',
+  };
+  return colorMap[priority] || 'bg-gray-100 text-gray-600';
+};
+
+export const calculatePrice = (
+  basePrice: number,
+  hourlyRate: number,
+  dailyCap: number,
+  startTime: string,
+  endTime: string,
+  luggageCount: number,
+): number => {
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  const hours = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60)));
+  const days = Math.ceil(hours / 24);
+  const totalHours = Math.min(hours, days * 24);
+  let price = basePrice + Math.max(0, totalHours - 1) * hourlyRate;
+  price = Math.min(price, dailyCap * days);
+  return price * luggageCount;
+};
+
+export const calculateInsurancePremium = (insuredAmount: number): number => {
+  return Math.max(5, insuredAmount * 0.01);
+};
