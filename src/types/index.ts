@@ -9,6 +9,8 @@ export interface User {
   storeId?: string;
 }
 
+export type LocationType = 'station' | 'commercial' | 'scenic' | 'airport' | 'other';
+
 export interface Store {
   id: string;
   name: string;
@@ -31,6 +33,7 @@ export interface Store {
   hourlyRate: number;
   dailyCap: number;
   features: string[];
+  locationType: LocationType;
 }
 
 export type LuggageSize = 'small' | 'medium' | 'large';
@@ -62,6 +65,7 @@ export interface Order {
   status: OrderStatus;
   startTime: string;
   endTime: string;
+  originalEndTime?: string;
   luggageCount: number;
   luggages: LuggageItem[];
   totalAmount: number;
@@ -74,6 +78,10 @@ export interface Order {
   pickedAt?: string;
   cancelledAt?: string;
   cancelReason?: string;
+  overdueMarkedAt?: string;
+  renewedAt?: string;
+  renewCount?: number;
+  additionalAmount?: number;
 }
 
 export interface FilterParams {
@@ -85,6 +93,7 @@ export interface FilterParams {
   priceMax?: number;
   minRating?: number;
   sortBy?: 'distance' | 'price' | 'rating' | 'popular';
+  locationTypes?: LocationType[];
 }
 
 export interface Locker {

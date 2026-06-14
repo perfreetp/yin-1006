@@ -1,4 +1,4 @@
-import type { User, ServiceTicket, Settlement, HolidayConfig, Locker } from '@/types';
+import type { User, ServiceTicket, Settlement, HolidayConfig, Locker, PriceRule } from '@/types';
 
 export const mockUsers: User[] = [
   {
@@ -29,6 +29,97 @@ export const mockUsers: User[] = [
     nickname: '运营管理员',
     role: 'admin',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user4',
+  },
+];
+
+export const mockPriceRules: PriceRule[] = [
+  {
+    id: 'pr-001',
+    storeId: 'store-001',
+    basePrice: 15,
+    smallPrice: 10,
+    mediumPrice: 15,
+    largePrice: 25,
+    hourlyRate: 5,
+    dailyCap: 30,
+    holidaySurcharge: 1.3,
+  },
+  {
+    id: 'pr-002',
+    storeId: 'store-002',
+    basePrice: 12,
+    smallPrice: 8,
+    mediumPrice: 12,
+    largePrice: 20,
+    hourlyRate: 4,
+    dailyCap: 25,
+    holidaySurcharge: 1.2,
+  },
+  {
+    id: 'pr-003',
+    storeId: 'store-003',
+    basePrice: 18,
+    smallPrice: 12,
+    mediumPrice: 18,
+    largePrice: 28,
+    hourlyRate: 6,
+    dailyCap: 35,
+    holidaySurcharge: 1.3,
+  },
+  {
+    id: 'pr-004',
+    storeId: 'store-004',
+    basePrice: 30,
+    smallPrice: 20,
+    mediumPrice: 30,
+    largePrice: 50,
+    hourlyRate: 10,
+    dailyCap: 60,
+    holidaySurcharge: 1.5,
+  },
+  {
+    id: 'pr-005',
+    storeId: 'store-005',
+    basePrice: 10,
+    smallPrice: 8,
+    mediumPrice: 10,
+    largePrice: 18,
+    hourlyRate: 3,
+    dailyCap: 20,
+    holidaySurcharge: 1.1,
+  },
+  {
+    id: 'pr-006',
+    storeId: 'store-006',
+    basePrice: 25,
+    smallPrice: 15,
+    mediumPrice: 25,
+    largePrice: 40,
+    hourlyRate: 8,
+    dailyCap: 50,
+    holidaySurcharge: 1.5,
+  },
+  {
+    id: 'pr-007',
+    storeId: 'store-007',
+    basePrice: 16,
+    smallPrice: 10,
+    mediumPrice: 16,
+    largePrice: 26,
+    hourlyRate: 5,
+    dailyCap: 32,
+    holidaySurcharge: 1.2,
+  },
+  {
+    id: 'pr-008',
+    storeId: 'store-008',
+    basePrice: 20,
+    smallPrice: 12,
+    mediumPrice: 20,
+    largePrice: 35,
+    hourlyRate: 7,
+    dailyCap: 40,
+    holidaySurcharge: 1.3,
   },
 ];
 

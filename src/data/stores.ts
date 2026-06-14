@@ -26,6 +26,7 @@ export const mockStores: Store[] = [
     hourlyRate: 5,
     dailyCap: 30,
     features: ['24小时监控', '扫码存取', '保险服务', '大件寄存'],
+    locationType: 'station',
   },
   {
     id: 'store-002',
@@ -51,6 +52,7 @@ export const mockStores: Store[] = [
     hourlyRate: 4,
     dailyCap: 25,
     features: ['靠近车站', '大件寄存', '人工服务'],
+    locationType: 'station',
   },
   {
     id: 'store-003',
@@ -76,6 +78,7 @@ export const mockStores: Store[] = [
     hourlyRate: 6,
     dailyCap: 35,
     features: ['商圈中心', '智能柜', '24小时监控', '充电服务'],
+    locationType: 'commercial',
   },
   {
     id: 'store-004',
@@ -101,6 +104,7 @@ export const mockStores: Store[] = [
     hourlyRate: 10,
     dailyCap: 60,
     features: ['24小时营业', '机场内', '快速存取', '国际航班'],
+    locationType: 'airport',
   },
   {
     id: 'store-005',
@@ -126,6 +130,7 @@ export const mockStores: Store[] = [
     hourlyRate: 3,
     dailyCap: 20,
     features: ['地铁直达', '价格实惠', '中小型行李'],
+    locationType: 'commercial',
   },
   {
     id: 'store-006',
@@ -151,6 +156,7 @@ export const mockStores: Store[] = [
     hourlyRate: 8,
     dailyCap: 50,
     features: ['景区周边', '童车存放', '大空间', '多人行李'],
+    locationType: 'scenic',
   },
   {
     id: 'store-007',
@@ -176,6 +182,7 @@ export const mockStores: Store[] = [
     hourlyRate: 5,
     dailyCap: 32,
     features: ['商圈', '商务', '中小型行李'],
+    locationType: 'commercial',
   },
   {
     id: 'store-008',
@@ -201,5 +208,6 @@ export const mockStores: Store[] = [
     hourlyRate: 7,
     dailyCap: 40,
     features: ['景区', '环境好', '服务优质'],
+    locationType: 'scenic',
   },
 ];

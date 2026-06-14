@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Package,
   QrCode,
@@ -13,39 +13,60 @@ import {
   ArrowRight,
   Store,
   Phone,
+  X,
+  Edit3,
+  Clock3,
+  Plus,
+  Upload,
 } from 'lucide-react';
 import { useOrderStore } from '@/store/useOrderStore';
 import { useUserStore } from '@/store/useUserStore';
 import { useStoreStore } from '@/store/useStoreStore';
-import { formatPrice, formatDateTime, getStatusLabel, getStatusColor, getSizeLabel } from '@/utils/format';
+import { formatPrice, formatDateTime, getStatusLabel, getStatusColor, getSizeLabel, calculatePrice } from '@/utils/format';
 import type { Order } from '@/types';
 
-const menuItems = [
-  { icon: QrCode, label: '扫码入库', color: 'from-teal-500 to-teal-600', key: 'store' },
-  { icon: CheckCircle, label: '取件确认', color: 'from-emerald-500 to-emerald-600', key: 'pickup' },
-  { icon: AlertTriangle, label: '超时管理', color: 'from-amber-500 to-amber-600', key: 'overdue' },
-  { icon: RefreshCw, label: '续存办理', color: 'from-blue-500 to-blue-600', key: 'renew' },
-];
+type ModalType = 'store' | 'pickup' | 'overdue' | 'renew' | 'locker' | null;
 
 export default function StoreWorkbench() {
   const { currentUser } = useUserStore();
-  const { getOrdersByStoreId, storeLuggage, pickupLuggage } = useOrderStore();
+  const { getOrdersByStoreId, storeLuggage, pickupLuggage, updateLocker, markOverdue, renewOrder, getOrderByPickupCode } = useOrderStore();
   const { getStoreById } = useStoreStore();
+  
   const [activeTab, setActiveTab] = useState<'stored' | 'today'>('stored');
-  const [showStoreModal, setShowStoreModal] = useState(false);
+  const [activeModal, setActiveModal] = useState<ModalType>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [foundOrder, setFoundOrder] = useState<Order | null>(null);
-  const [selectedLockers, setSelectedLockers] = useState<string[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  
+  const [lockerInputs, setLockerInputs] = useState<string[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [newLockerNo, setNewLockerNo] = useState('');
+  const [selectedLuggageIndex, setSelectedLuggageIndex] = useState(0);
+  const [renewEndDate, setRenewEndDate] = useState('');
+  const [renewEndTime, setRenewEndTime] = useState('');
+  const [renewHours, setRenewHours] = useState(0);
+  const [renewAmount, setRenewAmount] = useState(0);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const storeId = currentUser?.storeId || 'store-001';
   const store = getStoreById(storeId);
   const storeOrders = getOrdersByStoreId(storeId);
 
-  const storedOrders = storeOrders.filter(o => o.status === 'stored');
+  const storedOrders = storeOrders.filter(o => o.status === 'stored' || o.status === 'overdue');
   const todayOrders = storeOrders.filter(o => {
     const today = new Date().toDateString();
     return new Date(o.createdAt).toDateString() === today;
   });
+
+  const filteredStoredOrders = useMemo(() => {
+    if (!searchQuery) return storedOrders;
+    const query = searchQuery.toLowerCase();
+    return storedOrders.filter(o =>
+      o.orderNo.toLowerCase().includes(query) ||
+      o.pickupCode.toLowerCase().includes(query)
+    );
+  }, [storedOrders, searchQuery]);
 
   const todayStats = {
     stored: todayOrders.filter(o => o.status === 'stored' || o.status === 'picked').length,
@@ -54,42 +75,207 @@ export default function StoreWorkbench() {
     inCabinet: storedOrders.length,
   };
 
+  const showSuccess = (msg: string) => {
+    setSuccessMessage(msg);
+    setTimeout(() => setSuccessMessage(null), 2500);
+  };
+
   const handleScan = () => {
-    const order = useOrderStore.getState().getOrderByPickupCode(scanCode);
-    if (order && order.status === 'paid') {
-      setFoundOrder(order);
-      setSelectedLockers(order.luggages.map(() => ''));
-    } else if (order && order.status === 'stored') {
-      setFoundOrder(order);
-      setSelectedLockers(order.luggages.map(l => l.lockerNo || ''));
-    } else {
-      setFoundOrder(null);
-      alert('订单不存在或状态不正确');
+    if (!scanCode.trim()) return;
+    
+    const order = getOrderByPickupCode(scanCode.trim());
+    if (!order) {
+      alert('订单不存在，请检查取件码');
+      return;
     }
+    
+    if (order.storeId !== storeId) {
+      alert('该订单不属于当前门店');
+      return;
+    }
+    
+    setFoundOrder(order);
+    setSelectedOrder(order);
+    
+    if (activeModal === 'store' && order.status === 'paid') {
+      setLockerInputs(order.luggages.map(() => ''));
+      setPhotoUrls(order.luggages.map(() => ''));
+    } else if (activeModal === 'locker' && (order.status === 'stored' || order.status === 'overdue')) {
+      setSelectedLuggageIndex(0);
+      setNewLockerNo(order.luggages[0]?.lockerNo || '');
+    } else if (activeModal === 'renew' && (order.status === 'stored' || order.status === 'overdue')) {
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      setRenewEndDate(tomorrow.toISOString().split('T')[0]);
+      setRenewEndTime('18:00');
+      calculateRenewAmount(order, tomorrow.toISOString().split('T')[0], '18:00');
+    } else if (activeModal === 'pickup' && order.status === 'stored') {
+      // 直接确认取件
+    } else if (activeModal === 'overdue' && order.status === 'stored') {
+      // 标记超时
+    } else {
+      alert(`订单当前状态为「${getStatusLabel(order.status)}」，无法执行此操作`);
+    }
+  };
+
+  const calculateRenewAmount = (order: Order, endDate: string, endTime: string) => {
+    if (!endDate || !endTime) {
+      setRenewHours(0);
+      setRenewAmount(0);
+      return;
+    }
+    
+    const currentEnd = new Date(order.endTime).getTime();
+    const newEnd = new Date(`${endDate}T${endTime}:00`).getTime();
+    
+    if (newEnd <= currentEnd) {
+      setRenewHours(0);
+      setRenewAmount(0);
+      return;
+    }
+    
+    const hours = Math.ceil((newEnd - currentEnd) / (1000 * 60 * 60));
+    setRenewHours(hours);
+    
+    const basePrice = store ? store.basePrice : 15;
+    const hourlyRate = store ? store.hourlyRate : 5;
+    const dailyCap = store ? store.dailyCap : 30;
+    
+    const amount = calculatePrice(basePrice, hourlyRate, dailyCap, order.endTime, `${endDate}T${endTime}:00`, order.luggageCount);
+    setRenewAmount(amount);
   };
 
   const handleStoreLuggage = () => {
     if (!foundOrder) return;
-    storeLuggage(foundOrder.id, selectedLockers);
-    setShowStoreModal(false);
-    setScanCode('');
-    setFoundOrder(null);
-    setSelectedLockers([]);
-    alert('入库成功！');
+    
+    const emptyLockers = lockerInputs.filter(l => !l.trim());
+    if (emptyLockers.length > 0) {
+      alert('请为所有行李分配柜位号');
+      return;
+    }
+    
+    const hasPhotos = photoUrls.some(p => p.trim());
+    if (!hasPhotos) {
+      if (!confirm('未上传行李照片，是否继续入库？')) return;
+    }
+    
+    storeLuggage(foundOrder.id, lockerInputs, photoUrls);
+    closeModal();
+    showSuccess('入库成功！行李已安全存放');
   };
 
   const handlePickup = () => {
-    if (!foundOrder) return;
-    pickupLuggage(foundOrder.id);
-    setShowStoreModal(false);
-    setScanCode('');
+    if (!foundOrder && !selectedOrder) return;
+    const orderId = foundOrder?.id || selectedOrder?.id;
+    if (!orderId) return;
+    
+    pickupLuggage(orderId);
+    closeModal();
+    showSuccess('取件成功！感谢您的使用');
+  };
+
+  const handleUpdateLocker = () => {
+    if (!selectedOrder) return;
+    if (!newLockerNo.trim()) {
+      alert('请输入新的柜位号');
+      return;
+    }
+    
+    updateLocker(selectedOrder.id, selectedLuggageIndex, newLockerNo.trim());
+    closeModal();
+    showSuccess('柜位已更新');
+  };
+
+  const handleMarkOverdue = () => {
+    if (!foundOrder && !selectedOrder) return;
+    const orderId = foundOrder?.id || selectedOrder?.id;
+    if (!orderId) return;
+    
+    if (!confirm('确定要将此订单标记为超时吗？')) return;
+    
+    markOverdue(orderId);
+    closeModal();
+    showSuccess('已标记为超时订单');
+  };
+
+  const handleRenew = () => {
+    if (!selectedOrder) return;
+    if (renewHours <= 0 || renewAmount <= 0) {
+      alert('请选择有效的续存时间');
+      return;
+    }
+    
+    const newEndTime = `${renewEndDate}T${renewEndTime}:00`;
+    renewOrder(selectedOrder.id, newEndTime, renewAmount);
+    closeModal();
+    showSuccess(`续存成功！延长${renewHours}小时，费用${formatPrice(renewAmount)}`);
+  };
+
+  const openModal = (type: ModalType, order?: Order) => {
+    setActiveModal(type);
+    if (order) {
+      setSelectedOrder(order);
+      setFoundOrder(order);
+      if (type === 'locker') {
+        setSelectedLuggageIndex(0);
+        setNewLockerNo(order.luggages[0]?.lockerNo || '');
+      } else if (type === 'renew') {
+        const now = new Date();
+        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        setRenewEndDate(tomorrow.toISOString().split('T')[0]);
+        setRenewEndTime('18:00');
+        calculateRenewAmount(order, tomorrow.toISOString().split('T')[0], '18:00');
+      }
+    } else {
+      setFoundOrder(null);
+      setSelectedOrder(null);
+      setScanCode('');
+    }
+    setLockerInputs([]);
+    setPhotoUrls([]);
+  };
+
+  const closeModal = () => {
+    setActiveModal(null);
     setFoundOrder(null);
-    setSelectedLockers([]);
-    alert('取件成功！');
+    setSelectedOrder(null);
+    setScanCode('');
+    setLockerInputs([]);
+    setPhotoUrls([]);
+    setNewLockerNo('');
+    setRenewEndDate('');
+    setRenewEndTime('');
+    setRenewHours(0);
+    setRenewAmount(0);
+  };
+
+  const quickActions = [
+    { icon: QrCode, label: '扫码入库', color: 'from-teal-500 to-teal-600', type: 'store' as ModalType, desc: '扫描支付订单分配柜位' },
+    { icon: CheckCircle, label: '取件确认', color: 'from-emerald-500 to-emerald-600', type: 'pickup' as ModalType, desc: '核验取件码完成取件' },
+    { icon: AlertTriangle, label: '超时处理', color: 'from-amber-500 to-amber-600', type: 'overdue' as ModalType, desc: '登记超期未取订单' },
+    { icon: RefreshCw, label: '续存办理', color: 'from-blue-500 to-blue-600', type: 'renew' as ModalType, desc: '延长寄存时间' },
+  ];
+
+  const getModalTitle = () => {
+    switch (activeModal) {
+      case 'store': return '扫码入库';
+      case 'pickup': return '取件确认';
+      case 'overdue': return '超时登记';
+      case 'renew': return '续存办理';
+      case 'locker': return '修改柜位';
+      default: return '';
+    }
   };
 
   return (
     <div className="max-w-5xl mx-auto">
+      {successMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-emerald-500 text-white rounded-xl shadow-lg flex items-center gap-2 animate-bounce">
+          <CheckCircle size={18} />
+          {successMessage}
+        </div>
+      )}
+
       <div className="bg-gradient-to-br from-teal-600 via-teal-700 to-cyan-800 rounded-3xl p-6 md:p-8 text-white mb-6">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -142,17 +328,17 @@ export default function StoreWorkbench() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {menuItems.map(item => (
+        {quickActions.map(item => (
           <button
-            key={item.key}
-            onClick={() => setShowStoreModal(true)}
+            key={item.type}
+            onClick={() => openModal(item.type)}
             className="bg-white rounded-2xl border border-slate-200 p-5 hover:shadow-lg hover:shadow-slate-200/50 hover:-translate-y-0.5 transition-all duration-300 text-left"
           >
             <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${item.color} flex items-center justify-center mb-3 shadow-lg`}>
               <item.icon className="text-white" size={24} />
             </div>
             <h3 className="font-bold text-slate-800">{item.label}</h3>
-            <p className="text-xs text-slate-400 mt-1">点击进入操作</p>
+            <p className="text-xs text-slate-400 mt-1">{item.desc}</p>
           </button>
         ))}
       </div>
@@ -184,53 +370,123 @@ export default function StoreWorkbench() {
         </div>
 
         <div className="p-4">
-          <div className="relative mb-4">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="搜索订单号、取件码..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-transparent rounded-xl text-sm focus:outline-none focus:bg-white focus:border-teal-500 transition-colors"
-            />
-          </div>
+          {activeTab === 'stored' && (
+            <div className="relative mb-4">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="搜索订单号、取件码..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-transparent rounded-xl text-sm focus:outline-none focus:bg-white focus:border-teal-500 transition-colors"
+              />
+            </div>
+          )}
 
           <div className="divide-y divide-slate-100">
-            {(activeTab === 'stored' ? storedOrders : todayOrders).map(order => (
+            {(activeTab === 'stored' ? filteredStoredOrders : todayOrders).map(order => (
               <div key={order.id} className="py-4">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-slate-800">{order.orderNo}</span>
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(order.status)}`}>
                       {getStatusLabel(order.status)}
                     </span>
+                    {order.renewCount && order.renewCount > 0 && (
+                      <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700">
+                        已续存{order.renewCount}次
+                      </span>
+                    )}
                   </div>
                   <span className="text-sm text-teal-600 font-bold">{formatPrice(order.totalAmount)}</span>
                 </div>
-                <div className="flex items-center gap-4 text-sm text-slate-500">
+                <div className="flex items-center gap-4 text-sm text-slate-500 flex-wrap">
                   <span>取件码：<span className="font-mono font-bold text-slate-700">{order.pickupCode}</span></span>
                   <span>{order.luggageCount}件</span>
                   <span>{formatDateTime(order.storedAt || order.createdAt)}</span>
+                  {order.additionalAmount && order.additionalAmount > 0 && (
+                    <span className="text-amber-600">续存费 +{formatPrice(order.additionalAmount)}</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
                   {order.luggages.map((lug, i) => (
-                    <span key={i} className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded-md">
+                    <span key={i} className="px-2 py-1 text-xs bg-slate-100 text-slate-600 rounded-md flex items-center gap-1">
                       {getSizeLabel(lug.size)}
-                      {lug.lockerNo && ` · ${lug.lockerNo}`}
+                      {lug.lockerNo && (
+                        <span className="text-teal-600 font-medium">· {lug.lockerNo}</span>
+                      )}
+                      {lug.photoUrl && (
+                        <span className="text-green-600">· 已拍照</span>
+                      )}
                     </span>
                   ))}
                 </div>
                 {order.status === 'stored' && (
-                  <div className="flex gap-2 mt-3">
-                    <button className="px-3 py-1.5 text-xs bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 transition-colors">
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <button
+                      onClick={() => openModal('locker', order)}
+                      className="px-3 py-1.5 text-xs bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 transition-colors flex items-center gap-1"
+                    >
+                      <Edit3 size={12} />
                       修改柜位
                     </button>
-                    <button className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors">
+                    <button
+                      onClick={() => openModal('renew', order)}
+                      className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
+                    >
+                      <Clock3 size={12} />
+                      续存
+                    </button>
+                    <button
+                      onClick={() => openModal('overdue', order)}
+                      className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors flex items-center gap-1"
+                    >
+                      <AlertTriangle size={12} />
+                      标记超时
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedOrder(order);
+                        openModal('pickup', order);
+                      }}
+                      className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors flex items-center gap-1"
+                    >
+                      <CheckCircle size={12} />
+                      确认取件
+                    </button>
+                  </div>
+                )}
+                {order.status === 'overdue' && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <button
+                      onClick={() => openModal('locker', order)}
+                      className="px-3 py-1.5 text-xs bg-teal-50 text-teal-700 rounded-lg hover:bg-teal-100 transition-colors flex items-center gap-1"
+                    >
+                      <Edit3 size={12} />
+                      修改柜位
+                    </button>
+                    <button
+                      onClick={() => openModal('renew', order)}
+                      className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
+                    >
+                      <Clock3 size={12} />
+                      续存
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedOrder(order);
+                        openModal('pickup', order);
+                      }}
+                      className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors flex items-center gap-1"
+                    >
+                      <CheckCircle size={12} />
                       确认取件
                     </button>
                   </div>
                 )}
               </div>
             ))}
-            {(activeTab === 'stored' ? storedOrders : todayOrders).length === 0 && (
+            {(activeTab === 'stored' ? filteredStoredOrders : todayOrders).length === 0 && (
               <div className="py-12 text-center">
                 <Package className="mx-auto text-slate-300 mb-3" size={48} />
                 <p className="text-slate-400">暂无数据</p>
@@ -240,22 +496,19 @@ export default function StoreWorkbench() {
         </div>
       </div>
 
-      {showStoreModal && (
+      {activeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => {
-              setShowStoreModal(false);
-              setScanCode('');
-              setFoundOrder(null);
-            }}
-          />
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="text-lg font-bold text-slate-800">扫码核验</h3>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeModal} />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">{getModalTitle()}</h3>
+              <button onClick={closeModal} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                <X size={20} className="text-slate-500" />
+              </button>
             </div>
+
             <div className="p-6">
-              {!foundOrder ? (
+              {!foundOrder && !selectedOrder ? (
                 <>
                   <div className="text-center mb-6">
                     <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
@@ -275,12 +528,88 @@ export default function StoreWorkbench() {
                   </div>
                   <button
                     onClick={handleScan}
-                    className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-xl transition-colors"
+                    disabled={!scanCode.trim()}
+                    className={`w-full py-3 font-medium rounded-xl transition-colors ${
+                      scanCode.trim()
+                        ? 'bg-teal-600 hover:bg-teal-700 text-white'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
                   >
                     核验
                   </button>
                 </>
-              ) : (
+              ) : activeModal === 'store' && foundOrder?.status === 'paid' ? (
+                <>
+                  <div className="mb-4">
+                    <p className="text-sm text-slate-500 mb-1">订单号</p>
+                    <p className="font-bold text-slate-800">{foundOrder.orderNo}</p>
+                  </div>
+                  <div className="mb-4">
+                    <p className="text-sm text-slate-500 mb-1">取件码</p>
+                    <p className="text-2xl font-bold text-teal-600 font-mono tracking-widest">
+                      {foundOrder.pickupCode}
+                    </p>
+                  </div>
+                  <div className="mb-4 p-4 bg-slate-50 rounded-xl">
+                    <p className="text-sm font-medium text-slate-700 mb-3">行李信息 · 分配柜位</p>
+                    {foundOrder.luggages.map((lug, i) => (
+                      <div key={i} className="mb-4 last:mb-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-slate-600">
+                            行李 {i + 1}：{getSizeLabel(lug.size)}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="柜位号"
+                            value={lockerInputs[i] || ''}
+                            onChange={e => {
+                              const newLockers = [...lockerInputs];
+                              newLockers[i] = e.target.value;
+                              setLockerInputs(newLockers);
+                            }}
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="照片URL（可选）"
+                            value={photoUrls[i] || ''}
+                            onChange={e => {
+                              const newPhotos = [...photoUrls];
+                              newPhotos[i] = e.target.value;
+                              setPhotoUrls(newPhotos);
+                            }}
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-500 text-sm"
+                          />
+                        </div>
+                        {photoUrls[i] && (
+                          <img
+                            src={photoUrls[i]}
+                            alt={`行李${i + 1}`}
+                            className="mt-2 w-full h-32 object-cover rounded-lg"
+                            onError={e => (e.currentTarget.style.display = 'none')}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleStoreLuggage}
+                      className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-xl transition-colors"
+                    >
+                      确认入库
+                    </button>
+                    <button
+                      onClick={closeModal}
+                      className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </>
+              ) : activeModal === 'pickup' && (foundOrder?.status === 'stored' || foundOrder?.status === 'overdue') ? (
                 <>
                   <div className="mb-4">
                     <p className="text-sm text-slate-500 mb-1">订单号</p>
@@ -299,54 +628,212 @@ export default function StoreWorkbench() {
                         <span className="text-sm text-slate-600">
                           行李 {i + 1}：{getSizeLabel(lug.size)}
                         </span>
-                        {foundOrder.status === 'paid' ? (
-                          <input
-                            type="text"
-                            placeholder="柜位号"
-                            value={selectedLockers[i] || ''}
-                            onChange={e => {
-                              const newLockers = [...selectedLockers];
-                              newLockers[i] = e.target.value;
-                              setSelectedLockers(newLockers);
-                            }}
-                            className="w-24 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-center focus:outline-none focus:border-teal-500"
-                          />
-                        ) : (
-                          <span className="text-sm font-medium text-teal-600">
-                            {lug.lockerNo || '未分配'}
-                          </span>
-                        )}
+                        <span className="text-sm font-medium text-teal-600">
+                          {lug.lockerNo || '未分配'}
+                        </span>
                       </div>
                     ))}
                   </div>
+                  {foundOrder.status === 'overdue' && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <p className="text-sm text-amber-700">
+                        <AlertTriangle size={14} className="inline mr-1" />
+                        此订单已超时，请确认是否已支付超时费用
+                      </p>
+                    </div>
+                  )}
                   <div className="flex gap-3">
-                    {foundOrder.status === 'paid' && (
-                      <button
-                        onClick={handleStoreLuggage}
-                        className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-xl transition-colors"
-                      >
-                        确认入库
-                      </button>
-                    )}
-                    {foundOrder.status === 'stored' && (
-                      <button
-                        onClick={handlePickup}
-                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors"
-                      >
-                        确认取件
-                      </button>
-                    )}
                     <button
-                      onClick={() => {
-                        setFoundOrder(null);
-                        setScanCode('');
-                        setSelectedLockers([]);
-                      }}
+                      onClick={handlePickup}
+                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors"
+                    >
+                      确认取件
+                    </button>
+                    <button
+                      onClick={closeModal}
                       className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
                     >
-                      返回
+                      取消
                     </button>
                   </div>
+                </>
+              ) : activeModal === 'locker' && selectedOrder ? (
+                <>
+                  <div className="mb-4">
+                    <p className="text-sm text-slate-500 mb-1">订单号</p>
+                    <p className="font-bold text-slate-800">{selectedOrder.orderNo}</p>
+                  </div>
+                  <div className="mb-4 p-4 bg-slate-50 rounded-xl">
+                    <p className="text-sm font-medium text-slate-700 mb-3">选择行李</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {selectedOrder.luggages.map((lug, i) => (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            setSelectedLuggageIndex(i);
+                            setNewLockerNo(lug.lockerNo || '');
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            selectedLuggageIndex === i
+                              ? 'bg-teal-600 text-white'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:border-teal-300'
+                          }`}
+                        >
+                          行李 {i + 1} · {getSizeLabel(lug.size)}
+                        </button>
+                      ))}
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500 mb-2">当前柜位</p>
+                      <p className="text-lg font-bold text-slate-800 mb-3">
+                        {selectedOrder.luggages[selectedLuggageIndex]?.lockerNo || '未分配'}
+                      </p>
+                      <p className="text-sm text-slate-500 mb-2">新柜位号</p>
+                      <input
+                        type="text"
+                        value={newLockerNo}
+                        onChange={e => setNewLockerNo(e.target.value)}
+                        placeholder="输入新柜位号"
+                        className="w-full px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleUpdateLocker}
+                      className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-xl transition-colors"
+                    >
+                      确认修改
+                    </button>
+                    <button
+                      onClick={closeModal}
+                      className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </>
+              ) : activeModal === 'overdue' && foundOrder?.status === 'stored' ? (
+                <>
+                  <div className="text-center py-4">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
+                      <AlertTriangle size={32} className="text-amber-500" />
+                    </div>
+                    <h4 className="text-lg font-bold text-slate-800 mb-2">确认标记为超时？</h4>
+                    <p className="text-slate-500 text-sm mb-4">
+                      订单 {foundOrder.orderNo} 已超过取件时间，标记为超时后将产生超时费用
+                    </p>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl mb-4">
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-slate-500">原定取件时间</span>
+                      <span className="text-slate-700">{formatDateTime(foundOrder.endTime)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">行李数量</span>
+                      <span className="text-slate-700">{foundOrder.luggageCount} 件</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleMarkOverdue}
+                      className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-xl transition-colors"
+                    >
+                      确认标记超时
+                    </button>
+                    <button
+                      onClick={closeModal}
+                      className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </>
+              ) : activeModal === 'renew' && selectedOrder ? (
+                <>
+                  <div className="mb-4">
+                    <p className="text-sm text-slate-500 mb-1">订单号</p>
+                    <p className="font-bold text-slate-800">{selectedOrder.orderNo}</p>
+                  </div>
+                  <div className="mb-4 p-4 bg-slate-50 rounded-xl">
+                    <p className="text-sm text-slate-500 mb-2">当前到期时间</p>
+                    <p className="text-lg font-bold text-slate-800">
+                      {formatDateTime(selectedOrder.endTime)}
+                    </p>
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      延长至
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={renewEndDate}
+                        onChange={e => {
+                          setRenewEndDate(e.target.value);
+                          calculateRenewAmount(selectedOrder, e.target.value, renewEndTime);
+                        }}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-500"
+                      />
+                      <input
+                        type="time"
+                        value={renewEndTime}
+                        onChange={e => {
+                          setRenewEndTime(e.target.value);
+                          calculateRenewAmount(selectedOrder, renewEndDate, e.target.value);
+                        }}
+                        className="w-28 px-4 py-2.5 border border-slate-200 rounded-lg focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+                  </div>
+                  {renewHours > 0 && (
+                    <div className="mb-4 p-4 bg-teal-50 rounded-xl">
+                      <div className="flex justify-between mb-2">
+                        <span className="text-slate-600">续存时长</span>
+                        <span className="font-bold text-teal-700">{renewHours} 小时</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">续存费用</span>
+                        <span className="font-bold text-teal-700">{formatPrice(renewAmount)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleRenew}
+                      disabled={renewHours <= 0}
+                      className={`flex-1 py-3 font-medium rounded-xl transition-colors ${
+                        renewHours > 0
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      确认续存
+                    </button>
+                    <button
+                      onClick={closeModal}
+                      className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-center py-8">
+                    <AlertTriangle className="mx-auto text-amber-400 mb-3" size={48} />
+                    <p className="text-slate-600 mb-2">订单状态不支持此操作</p>
+                    <p className="text-sm text-slate-400">
+                      当前状态：{getStatusLabel(foundOrder?.status || 'pending')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeModal}
+                    className="w-full py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                  >
+                    返回
+                  </button>
                 </>
               )}
             </div>

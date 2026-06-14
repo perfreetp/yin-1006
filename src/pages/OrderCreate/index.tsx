@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   MapPin,
@@ -13,6 +13,7 @@ import {
   Info,
   CreditCard,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { useStoreStore } from '@/store/useStoreStore';
 import { useOrderStore } from '@/store/useOrderStore';
@@ -52,6 +53,7 @@ export default function OrderCreate() {
   const [insuredAmount, setInsuredAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('wechat');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [timeError, setTimeError] = useState<string | null>(null);
 
   useEffect(() => {
     const now = new Date();
@@ -70,6 +72,43 @@ export default function OrderCreate() {
     setEndTime('18:00');
   }, []);
 
+  const startDateTime = useMemo(() => `${startDate}T${startTime}:00`, [startDate, startTime]);
+  const endDateTime = useMemo(() => `${endDate}T${endTime}:00`, [endDate, endTime]);
+
+  useEffect(() => {
+    if (!startDate || !startTime || !endDate || !endTime) {
+      setTimeError(null);
+      return;
+    }
+
+    const start = new Date(startDateTime).getTime();
+    const end = new Date(endDateTime).getTime();
+    const now = Date.now();
+
+    if (start < now - 5 * 60 * 1000) {
+      setTimeError('开始时间不能早于当前时间');
+      return;
+    }
+
+    if (end <= start) {
+      setTimeError('结束时间必须晚于开始时间');
+      return;
+    }
+
+    const diffHours = (end - start) / (1000 * 60 * 60);
+    if (diffHours < 1) {
+      setTimeError('寄存时长至少1小时');
+      return;
+    }
+
+    if (diffHours > 24 * 30) {
+      setTimeError('寄存时长不能超过30天');
+      return;
+    }
+
+    setTimeError(null);
+  }, [startDateTime, endDateTime]);
+
   if (!store) {
     return (
       <div className="py-16 text-center">
@@ -77,9 +116,6 @@ export default function OrderCreate() {
       </div>
     );
   }
-
-  const startDateTime = `${startDate}T${startTime}:00`;
-  const endDateTime = `${endDate}T${endTime}:00`;
 
   const sizePriceKey = sizeOptions.find(s => s.value === selectedSize)?.priceKey || 'mediumPrice';
   const basePrice = store[sizePriceKey];
@@ -92,8 +128,11 @@ export default function OrderCreate() {
   const insurancePremium = insuredAmount > 0 ? calculateInsurancePremium(insuredAmount) * luggageCount : 0;
   const totalAmount = luggagePrice + insurancePremium;
 
+  const canSubmit = !timeError && startDate && startTime && endDate && endTime;
+
   const handleSubmit = () => {
     if (!currentUser) return;
+    if (!canSubmit) return;
 
     const newOrder = createOrder({
       userId: currentUser.id,
@@ -223,13 +262,18 @@ export default function OrderCreate() {
                 type="date"
                 value={startDate}
                 onChange={e => setStartDate(e.target.value)}
-                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500 focus:bg-white transition-colors"
+                min={new Date().toISOString().split('T')[0]}
+                className={`flex-1 px-4 py-2.5 bg-slate-50 border rounded-xl text-sm focus:outline-none transition-colors ${
+                  timeError ? 'border-red-300 focus:border-red-500 focus:bg-white' : 'border-slate-200 focus:border-teal-500 focus:bg-white'
+                }`}
               />
               <input
                 type="time"
                 value={startTime}
                 onChange={e => setStartTime(e.target.value)}
-                className="w-28 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500 focus:bg-white transition-colors"
+                className={`w-28 px-4 py-2.5 bg-slate-50 border rounded-xl text-sm focus:outline-none transition-colors ${
+                  timeError ? 'border-red-300 focus:border-red-500 focus:bg-white' : 'border-slate-200 focus:border-teal-500 focus:bg-white'
+                }`}
               />
             </div>
           </div>
@@ -242,23 +286,38 @@ export default function OrderCreate() {
                 type="date"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500 focus:bg-white transition-colors"
+                min={startDate || new Date().toISOString().split('T')[0]}
+                className={`flex-1 px-4 py-2.5 bg-slate-50 border rounded-xl text-sm focus:outline-none transition-colors ${
+                  timeError ? 'border-red-300 focus:border-red-500 focus:bg-white' : 'border-slate-200 focus:border-teal-500 focus:bg-white'
+                }`}
               />
               <input
                 type="time"
                 value={endTime}
                 onChange={e => setEndTime(e.target.value)}
-                className="w-28 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500 focus:bg-white transition-colors"
+                className={`w-28 px-4 py-2.5 bg-slate-50 border rounded-xl text-sm focus:outline-none transition-colors ${
+                  timeError ? 'border-red-300 focus:border-red-500 focus:bg-white' : 'border-slate-200 focus:border-teal-500 focus:bg-white'
+                }`}
               />
             </div>
           </div>
         </div>
-        <div className="mt-4 p-3 bg-teal-50 rounded-xl flex items-start gap-2">
-          <Info size={16} className="text-teal-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-teal-700">
-            预计寄存 {totalHours} 小时，超时将按小时计费
-          </p>
-        </div>
+        
+        {timeError && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2">
+            <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{timeError}</p>
+          </div>
+        )}
+
+        {!timeError && startDate && startTime && endDate && endTime && (
+          <div className="mt-4 p-3 bg-teal-50 rounded-xl flex items-start gap-2">
+            <Info size={16} className="text-teal-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-teal-700">
+              预计寄存 {totalHours} 小时，超时将按小时计费
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
@@ -408,9 +467,14 @@ export default function OrderCreate() {
               </div>
               <button
                 onClick={handleSubmit}
-                className="px-8 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl shadow-lg shadow-teal-600/30 hover:shadow-teal-600/40 transition-all hover:-translate-y-0.5"
+                disabled={!canSubmit}
+                className={`px-8 py-3 font-bold rounded-xl transition-all ${
+                  canSubmit
+                    ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-lg shadow-teal-600/30 hover:shadow-teal-600/40 hover:-translate-y-0.5'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                }`}
               >
-                立即支付
+                {timeError ? '时间有误' : '立即支付'}
               </button>
             </div>
           </div>

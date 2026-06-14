@@ -1,12 +1,20 @@
 import { useState } from 'react';
-import { Search, Filter, Clock, Star, SlidersHorizontal, X } from 'lucide-react';
+import { Search, Filter, Clock, Star, SlidersHorizontal, X, MapPin } from 'lucide-react';
 import { useStoreStore } from '@/store/useStoreStore';
-import type { LuggageSize } from '@/types';
+import type { LuggageSize, LocationType } from '@/types';
 
 const sizeOptions: { value: LuggageSize; label: string }[] = [
   { value: 'small', label: '小件' },
   { value: 'medium', label: '中件' },
   { value: 'large', label: '大件' },
+];
+
+const locationTypeOptions: { value: LocationType; label: string; icon: string }[] = [
+  { value: 'station', label: '车站', icon: '🚄' },
+  { value: 'commercial', label: '商圈', icon: '🏬' },
+  { value: 'scenic', label: '景区', icon: '🎡' },
+  { value: 'airport', label: '机场', icon: '✈️' },
+  { value: 'other', label: '其他', icon: '📍' },
 ];
 
 const sortOptions: { value: 'distance' | 'price' | 'rating' | 'popular'; label: string }[] = [
@@ -19,7 +27,7 @@ const sortOptions: { value: 'distance' | 'price' | 'rating' | 'popular'; label: 
 const ratingOptions = [4.5, 4.0, 3.5, 3.0];
 
 export default function FilterBar() {
-  const { filters, setFilters, toggleSizeFilter, toggleOpenNow, setSortBy } = useStoreStore();
+  const { filters, setFilters, toggleSizeFilter, toggleLocationTypeFilter, toggleOpenNow, setSortBy } = useStoreStore();
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 100]);
 
@@ -54,11 +62,13 @@ export default function FilterBar() {
       priceMin: undefined,
       priceMax: undefined,
       minRating: undefined,
+      locationTypes: undefined,
     });
     setPriceRange([0, 100]);
   };
 
-  const hasActiveFilters = filters.openNow || (filters.sizes?.length || 0) > 0 || filters.minRating || filters.priceMin || filters.priceMax;
+  const hasActiveFilters = filters.openNow || (filters.sizes?.length || 0) > 0 || filters.minRating || filters.priceMin || filters.priceMax || (filters.locationTypes?.length || 0) > 0;
+  const activeFilterCount = (filters.sizes?.length || 0) + (filters.openNow ? 1 : 0) + (filters.minRating ? 1 : 0) + ((filters.priceMin || filters.priceMax) ? 1 : 0) + (filters.locationTypes?.length || 0);
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6">
@@ -115,7 +125,7 @@ export default function FilterBar() {
             筛选
             {hasActiveFilters && (
               <span className="w-5 h-5 bg-teal-600 text-white text-xs rounded-full flex items-center justify-center">
-                {(filters.sizes?.length || 0) + (filters.openNow ? 1 : 0) + (filters.minRating ? 1 : 0) + ((filters.priceMin || filters.priceMax) ? 1 : 0)}
+                {activeFilterCount}
               </span>
             )}
           </button>
@@ -124,7 +134,30 @@ export default function FilterBar() {
 
       {showMoreFilters && (
         <div className="mt-4 pt-4 border-t border-slate-100">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div>
+              <span className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-1.5">
+                <MapPin size={14} />
+                位置类型
+              </span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {locationTypeOptions.map(option => (
+                  <button
+                    key={option.value}
+                    onClick={() => toggleLocationTypeFilter(option.value)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      filters.locationTypes?.includes(option.value)
+                        ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{option.icon}</span>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-slate-700">价格区间</span>

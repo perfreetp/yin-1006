@@ -1,7 +1,15 @@
 import { Link } from 'react-router-dom';
 import { Star, Clock, MapPin, Package, Shield } from 'lucide-react';
-import type { Store } from '@/types';
+import type { Store, LocationType } from '@/types';
 import { formatPrice, formatDistance } from '@/utils/format';
+
+const locationTypeLabels: Record<LocationType, { icon: string; label: string; color: string }> = {
+  station: { icon: '🚄', label: '车站', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  commercial: { icon: '🏬', label: '商圈', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+  scenic: { icon: '🎡', label: '景区', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  airport: { icon: '✈️', label: '机场', color: 'bg-sky-50 text-sky-700 border-sky-200' },
+  other: { icon: '📍', label: '其他', color: 'bg-slate-50 text-slate-700 border-slate-200' },
+};
 
 interface StoreCardProps {
   store: Store;
@@ -10,6 +18,7 @@ interface StoreCardProps {
 export default function StoreCard({ store }: StoreCardProps) {
   const capacityPercent = (store.availableCapacity / store.totalCapacity) * 100;
   const capacityColor = capacityPercent > 50 ? 'bg-teal-500' : capacityPercent > 20 ? 'bg-amber-500' : 'bg-red-500';
+  const locationType = locationTypeLabels[store.locationType];
 
   return (
     <Link
@@ -41,9 +50,15 @@ export default function StoreCard({ store }: StoreCardProps) {
         <div className="flex-1 p-5 flex flex-col">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-lg font-bold text-slate-800 group-hover:text-teal-600 transition-colors">
-                {store.name}
-              </h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-bold text-slate-800 group-hover:text-teal-600 transition-colors">
+                  {store.name}
+                </h3>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-md border ${locationType.color}`}>
+                  <span>{locationType.icon}</span>
+                  {locationType.label}
+                </span>
+              </div>
               <div className="flex items-center gap-1.5 mt-1 text-sm text-slate-500">
                 <MapPin size={14} className="flex-shrink-0" />
                 <span className="truncate max-w-xs">{store.address}</span>

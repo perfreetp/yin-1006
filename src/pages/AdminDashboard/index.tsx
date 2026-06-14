@@ -10,18 +10,20 @@ import {
   Plus,
   Search,
   ChevronRight,
-  MoreHorizontal,
   Edit,
   Trash2,
   X,
   Check,
   Clock,
   FileText,
+  MapPin,
+  Phone,
+  Tag,
 } from 'lucide-react';
-import { mockStores } from '@/data/stores';
-import { mockSettlements, mockHolidays } from '@/data/misc';
+import { useStoreStore } from '@/store/useStoreStore';
+import { useAdminStore } from '@/store/useAdminStore';
 import { formatPrice, formatDateTime } from '@/utils/format';
-import type { Store, Settlement, HolidayConfig } from '@/types';
+import type { Store, PriceRule, HolidayConfig, Settlement, LocationType } from '@/types';
 
 const menuTabs = [
   { key: 'dashboard', label: '数据概览', icon: <BarChart3 size={18} /> },
@@ -31,14 +33,43 @@ const menuTabs = [
   { key: 'settlements', label: '结算明细', icon: <FileText size={18} /> },
 ];
 
+const locationTypeOptions: { value: LocationType; label: string }[] = [
+  { value: 'station', label: '车站' },
+  { value: 'commercial', label: '商圈' },
+  { value: 'scenic', label: '景区' },
+  { value: 'airport', label: '机场' },
+  { value: 'other', label: '其他' },
+];
+
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [stores, setStores] = useState<Store[]>(mockStores);
-  const [settlements] = useState<Settlement[]>(mockSettlements);
-  const [holidays, setHolidays] = useState<HolidayConfig[]>(mockHolidays);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [editingPriceRule, setEditingPriceRule] = useState<PriceRule | null>(null);
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
+  const [editingHoliday, setEditingHoliday] = useState<HolidayConfig | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const { stores, addStore, updateStore, deleteStore } = useStoreStore();
+  const {
+    priceRules,
+    holidayConfigs,
+    settlements,
+    addPriceRule,
+    updatePriceRule,
+    deletePriceRule,
+    addHoliday,
+    updateHoliday,
+    deleteHoliday,
+    settlePayment,
+  } = useAdminStore();
+
+  const showToast = (message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const filteredStores = useMemo(() => {
     if (!searchKeyword) return stores;
@@ -69,13 +100,132 @@ export default function AdminDashboard() {
 
   const handleSaveStore = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Save logic here
+    const formData = new FormData(e.currentTarget);
+    const storeData = {
+      name: formData.get('name') as string,
+      address: formData.get('address') as string,
+      phone: formData.get('phone') as string,
+      businessHours: formData.get('businessHours') as string,
+      totalCapacity: parseInt(formData.get('totalCapacity') as string),
+      availableCapacity: parseInt(formData.get('totalCapacity') as string),
+      basePrice: parseFloat(formData.get('basePrice') as string),
+      smallPrice: parseFloat(formData.get('smallPrice') as string) || 10,
+      mediumPrice: parseFloat(formData.get('mediumPrice') as string) || 15,
+      largePrice: parseFloat(formData.get('largePrice') as string) || 25,
+      hourlyRate: parseFloat(formData.get('hourlyRate') as string) || 5,
+      dailyCap: parseFloat(formData.get('dailyCap') as string) || 30,
+      locationType: formData.get('locationType') as LocationType,
+      lat: 31.2304,
+      lng: 121.4737,
+      description: '专业行李寄存服务',
+      rating: 5,
+      reviewCount: 0,
+      distance: 0,
+      images: ['https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=modern%20luggage%20storage%20store%20interior%20with%20clean%20lockers&image_size=square'],
+      features: [],
+    };
+
+    if (editingStore) {
+      updateStore(editingStore.id, storeData);
+      showToast('门店更新成功');
+    } else {
+      addStore(storeData);
+      showToast('门店新增成功');
+    }
     setShowStoreModal(false);
     setEditingStore(null);
   };
 
+  const handleDeleteStore = (id: string) => {
+    if (confirm('确定要删除这家门店吗？')) {
+      deleteStore(id);
+      showToast('门店已删除');
+    }
+  };
+
+  const handleSavePriceRule = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const priceRuleData = {
+      storeId: formData.get('storeId') as string,
+      basePrice: parseFloat(formData.get('basePrice') as string) || 10,
+      smallPrice: parseFloat(formData.get('smallPrice') as string),
+      mediumPrice: parseFloat(formData.get('mediumPrice') as string),
+      largePrice: parseFloat(formData.get('largePrice') as string),
+      hourlyRate: parseFloat(formData.get('hourlyRate') as string),
+      dailyCap: parseFloat(formData.get('dailyCap') as string),
+      holidaySurcharge: parseFloat(formData.get('holidaySurcharge') as string) || 0,
+    };
+
+    if (editingPriceRule) {
+      updatePriceRule(editingPriceRule.id, priceRuleData);
+      showToast('价格规则更新成功');
+    } else {
+      addPriceRule(priceRuleData);
+      showToast('价格规则新增成功');
+    }
+    setShowPriceModal(false);
+    setEditingPriceRule(null);
+  };
+
+  const handleDeletePriceRule = (id: string) => {
+    if (confirm('确定要删除这条价格规则吗？')) {
+      deletePriceRule(id);
+      showToast('价格规则已删除');
+    }
+  };
+
+  const handleSaveHoliday = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const holidayData = {
+      name: formData.get('name') as string,
+      date: formData.get('date') as string,
+      capacityMultiplier: parseFloat(formData.get('capacityMultiplier') as string),
+      priceMultiplier: parseFloat(formData.get('priceMultiplier') as string),
+    };
+
+    if (editingHoliday) {
+      updateHoliday(editingHoliday.id, holidayData);
+      showToast('节假日配置更新成功');
+    } else {
+      addHoliday(holidayData);
+      showToast('节假日新增成功');
+    }
+    setShowHolidayModal(false);
+    setEditingHoliday(null);
+  };
+
+  const handleDeleteHoliday = (id: string) => {
+    if (confirm('确定要删除这个节假日配置吗？')) {
+      deleteHoliday(id);
+      showToast('节假日配置已删除');
+    }
+  };
+
+  const handleSettlePayment = (id: string) => {
+    if (confirm('确定要确认结算吗？')) {
+      settlePayment(id);
+      showToast('结算已确认');
+    }
+  };
+
+  const getLocationTypeLabel = (type: LocationType) => {
+    return locationTypeOptions.find(opt => opt.value === type)?.label || '其他';
+  };
+
+  const getStoreNameById = (storeId: string) => {
+    return stores.find(s => s.id === storeId)?.name || '未知门店';
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-teal-600 text-white rounded-xl shadow-lg animate-bounce">
+          {toast}
+        </div>
+      )}
+
       <div className="bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 rounded-3xl p-6 md:p-8 text-white mb-6">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center">
@@ -266,9 +416,9 @@ export default function AdminDashboard() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">门店</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">地址</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">类型</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">评分</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">容量</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">状态</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">操作</th>
                 </tr>
               </thead>
@@ -286,6 +436,11 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate">{store.address}</td>
                     <td className="px-6 py-4">
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
+                        {getLocationTypeLabel(store.locationType)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
                       <span className="text-sm font-medium text-amber-600">{store.rating}</span>
                     </td>
                     <td className="px-6 py-4">
@@ -293,17 +448,21 @@ export default function AdminDashboard() {
                         {store.availableCapacity}/{store.totalCapacity}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-emerald-100 text-emerald-700">
-                        营业中
-                      </span>
-                    </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+                        <button
+                          onClick={() => {
+                            setEditingStore(store);
+                            setShowStoreModal(true);
+                          }}
+                          className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                        >
                           <Edit size={14} className="text-slate-500" />
                         </button>
-                        <button className="p-1.5 hover:bg-red-50 rounded-lg transition-colors">
+                        <button
+                          onClick={() => handleDeleteStore(store.id)}
+                          className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                        >
                           <Trash2 size={14} className="text-red-500" />
                         </button>
                       </div>
@@ -317,42 +476,69 @@ export default function AdminDashboard() {
       )}
 
       {activeTab === 'pricing' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <h3 className="font-bold text-slate-800 mb-6">价格规则配置</h3>
-          <div className="space-y-6">
-            <div className="p-4 bg-slate-50 rounded-xl">
-              <h4 className="font-medium text-slate-700 mb-4">基础价格设置</h4>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-500 mb-1">小件价格</label>
-                  <input type="number" defaultValue={10} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500" />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-500 mb-1">中件价格</label>
-                  <input type="number" defaultValue={15} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500" />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-500 mb-1">大件价格</label>
-                  <input type="number" defaultValue={25} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500" />
-                </div>
-              </div>
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-slate-800">价格规则配置</h3>
+              <button
+                onClick={() => {
+                  setEditingPriceRule(null);
+                  setShowPriceModal(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
+              >
+                <Plus size={16} />
+                新增规则
+              </button>
             </div>
-            <div className="p-4 bg-slate-50 rounded-xl">
-              <h4 className="font-medium text-slate-700 mb-4">时段计价规则</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-500 mb-1">每小时费用</label>
-                  <input type="number" defaultValue={5} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500" />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-500 mb-1">每日封顶</label>
-                  <input type="number" defaultValue={30} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500" />
-                </div>
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">门店</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">小件</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">中件</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">大件</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">小时费率</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">每日封顶</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {priceRules.map(rule => (
+                    <tr key={rule.id} className="hover:bg-slate-50/50">
+                      <td className="px-6 py-4 font-medium text-slate-800 text-sm">
+                        {getStoreNameById(rule.storeId)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.smallPrice * 100)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.mediumPrice * 100)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.largePrice * 100)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.hourlyRate * 100)}/时</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.dailyCap * 100)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingPriceRule(rule);
+                              setShowPriceModal(true);
+                            }}
+                            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                          >
+                            <Edit size={14} className="text-slate-500" />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePriceRule(rule.id)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={14} className="text-red-500" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <button className="px-6 py-2.5 bg-teal-600 text-white font-medium rounded-xl hover:bg-teal-700 transition-colors">
-              保存配置
-            </button>
           </div>
         </div>
       )}
@@ -361,14 +547,20 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h3 className="font-bold text-slate-800">节假日配置</h3>
-            <button className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors">
+            <button
+              onClick={() => {
+                setEditingHoliday(null);
+                setShowHolidayModal(true);
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors"
+            >
               <Plus size={16} />
               新增节假日
             </button>
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {holidays.map(holiday => (
+              {holidayConfigs.map(holiday => (
                 <div key={holiday.id} className="p-4 border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-bold text-slate-800">{holiday.name}</h4>
@@ -385,10 +577,19 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
-                    <button className="flex-1 py-1.5 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => {
+                        setEditingHoliday(holiday);
+                        setShowHolidayModal(true);
+                      }}
+                      className="flex-1 py-1.5 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+                    >
                       编辑
                     </button>
-                    <button className="flex-1 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleDeleteHoliday(holiday.id)}
+                      className="flex-1 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
                       删除
                     </button>
                   </div>
@@ -438,14 +639,17 @@ export default function AdminDashboard() {
                     </td>
                     <td className="px-6 py-4 text-center">
                       {s.status === 'pending' && (
-                        <button className="text-sm text-teal-600 hover:text-teal-700 font-medium">
+                        <button
+                          onClick={() => handleSettlePayment(s.id)}
+                          className="text-sm text-teal-600 hover:text-teal-700 font-medium"
+                        >
                           确认结算
                         </button>
                       )}
                       {s.status === 'settled' && (
-                        <button className="text-sm text-slate-500 hover:text-slate-700">
-                          查看详情
-                        </button>
+                        <div className="text-xs text-slate-400">
+                          {s.settledAt && formatDateTime(s.settledAt)}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -479,37 +683,58 @@ export default function AdminDashboard() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">门店名称</label>
                 <input
                   type="text"
+                  name="name"
                   defaultValue={editingStore?.name}
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
                   placeholder="请输入门店名称"
+                  required
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">门店地址</label>
                 <input
                   type="text"
+                  name="address"
                   defaultValue={editingStore?.address}
                   className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
                   placeholder="请输入门店地址"
+                  required
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">位置类型</label>
+                <select
+                  name="locationType"
+                  defaultValue={editingStore?.locationType || 'commercial'}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                  required
+                >
+                  {locationTypeOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">营业时间</label>
                   <input
                     type="text"
+                    name="businessHours"
                     defaultValue={editingStore?.businessHours}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
                     placeholder="09:00 - 21:00"
+                    required
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">联系电话</label>
                   <input
                     type="text"
+                    name="phone"
                     defaultValue={editingStore?.phone}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
                     placeholder="联系电话"
+                    required
                   />
                 </div>
               </div>
@@ -518,16 +743,82 @@ export default function AdminDashboard() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">总容量</label>
                   <input
                     type="number"
+                    name="totalCapacity"
                     defaultValue={editingStore?.totalCapacity}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="1"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">基础价格</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">基础价格(元)</label>
                   <input
                     type="number"
+                    name="basePrice"
                     defaultValue={editingStore?.basePrice}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">小件价格(元)</label>
+                  <input
+                    type="number"
+                    name="smallPrice"
+                    defaultValue={editingStore?.smallPrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">中件价格(元)</label>
+                  <input
+                    type="number"
+                    name="mediumPrice"
+                    defaultValue={editingStore?.mediumPrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">大件价格(元)</label>
+                  <input
+                    type="number"
+                    name="largePrice"
+                    defaultValue={editingStore?.largePrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">小时费率(元)</label>
+                  <input
+                    type="number"
+                    name="hourlyRate"
+                    defaultValue={editingStore?.hourlyRate}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">每日封顶(元)</label>
+                  <input
+                    type="number"
+                    name="dailyCap"
+                    defaultValue={editingStore?.dailyCap}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    min="0"
+                    step="0.01"
                   />
                 </div>
               </div>
@@ -535,6 +826,236 @@ export default function AdminDashboard() {
                 <button
                   type="button"
                   onClick={() => setShowStoreModal(false)}
+                  className="flex-1 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-teal-600 text-white font-medium rounded-xl hover:bg-teal-700 transition-colors"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showPriceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowPriceModal(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingPriceRule ? '编辑价格规则' : '新增价格规则'}
+              </h3>
+              <button
+                onClick={() => setShowPriceModal(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg"
+              >
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+            <form onSubmit={handleSavePriceRule} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">所属门店</label>
+                <select
+                  name="storeId"
+                  defaultValue={editingPriceRule?.storeId}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                  required
+                >
+                  <option value="">请选择门店</option>
+                  {stores.map(store => (
+                    <option key={store.id} value={store.id}>{store.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">基础价格(元)</label>
+                  <input
+                    type="number"
+                    name="basePrice"
+                    defaultValue={editingPriceRule?.basePrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">节假日附加费(元)</label>
+                  <input
+                    type="number"
+                    name="holidaySurcharge"
+                    defaultValue={editingPriceRule?.holidaySurcharge}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">小件价格(元)</label>
+                  <input
+                    type="number"
+                    name="smallPrice"
+                    defaultValue={editingPriceRule?.smallPrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">中件价格(元)</label>
+                  <input
+                    type="number"
+                    name="mediumPrice"
+                    defaultValue={editingPriceRule?.mediumPrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">大件价格(元)</label>
+                  <input
+                    type="number"
+                    name="largePrice"
+                    defaultValue={editingPriceRule?.largePrice}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">小时费率(元)</label>
+                  <input
+                    type="number"
+                    name="hourlyRate"
+                    defaultValue={editingPriceRule?.hourlyRate}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">每日封顶(元)</label>
+                  <input
+                    type="number"
+                    name="dailyCap"
+                    defaultValue={editingPriceRule?.dailyCap}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowPriceModal(false)}
+                  className="flex-1 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 bg-teal-600 text-white font-medium rounded-xl hover:bg-teal-700 transition-colors"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showHolidayModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowHolidayModal(false)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">
+                {editingHoliday ? '编辑节假日' : '新增节假日'}
+              </h3>
+              <button
+                onClick={() => setShowHolidayModal(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg"
+              >
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveHoliday} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">节假日名称</label>
+                <input
+                  type="text"
+                  name="name"
+                  defaultValue={editingHoliday?.name}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                  placeholder="例如：春节、国庆"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">日期</label>
+                <input
+                  type="text"
+                  name="date"
+                  defaultValue={editingHoliday?.date}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                  placeholder="例如：2025-01-01"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">容量倍数</label>
+                  <input
+                    type="number"
+                    name="capacityMultiplier"
+                    defaultValue={editingHoliday?.capacityMultiplier}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0.1"
+                    step="0.1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">价格倍数</label>
+                  <input
+                    type="number"
+                    name="priceMultiplier"
+                    defaultValue={editingHoliday?.priceMultiplier}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"
+                    required
+                    min="0.1"
+                    step="0.1"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowHolidayModal(false)}
                   className="flex-1 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
                 >
                   取消
