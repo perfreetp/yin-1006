@@ -18,7 +18,8 @@ import {
 import { useStoreStore } from '@/store/useStoreStore';
 import { useOrderStore } from '@/store/useOrderStore';
 import { useUserStore } from '@/store/useUserStore';
-import { formatPrice, getSizeLabel, getSizeDescription, calculatePrice, calculateInsurancePremium } from '@/utils/format';
+import { useAdminStore } from '@/store/useAdminStore';
+import { formatPrice, getSizeLabel, getSizeDescription, calculatePrice, calculateInsurancePremium, isHolidayPeriod } from '@/utils/format';
 import type { LuggageSize } from '@/types';
 
 const sizeOptions: { value: LuggageSize; label: string; priceKey: 'smallPrice' | 'mediumPrice' | 'largePrice' }[] = [
@@ -41,6 +42,7 @@ export default function OrderCreate() {
   const { getStoreById } = useStoreStore();
   const { createOrder, payOrder } = useOrderStore();
   const { currentUser } = useUserStore();
+  const { getPriceRuleByStoreId, holidayConfigs } = useAdminStore();
 
   const store = getStoreById(storeId || '');
 
@@ -118,13 +120,20 @@ export default function OrderCreate() {
   }
 
   const sizePriceKey = sizeOptions.find(s => s.value === selectedSize)?.priceKey || 'mediumPrice';
-  const basePrice = store[sizePriceKey];
+  const priceRule = store ? getPriceRuleByStoreId(store.id) : undefined;
+  
+  const effectiveBasePrice = priceRule ? priceRule[sizePriceKey] : (store ? store[sizePriceKey] : 15);
+  const effectiveHourlyRate = priceRule ? priceRule.hourlyRate : (store?.hourlyRate || 5);
+  const effectiveDailyCap = priceRule ? priceRule.dailyCap : (store?.dailyCap || 30);
+  const holidaySurcharge = priceRule ? priceRule.holidaySurcharge : 0;
+  
+  const { isHoliday, multiplier: priceMultiplier } = isHolidayPeriod(startDateTime, endDateTime, holidayConfigs);
   
   const totalHours = Math.max(1, Math.ceil(
     (new Date(endDateTime).getTime() - new Date(startDateTime).getTime()) / (1000 * 60 * 60)
   ));
   
-  const luggagePrice = calculatePrice(basePrice, store.hourlyRate, store.dailyCap, startDateTime, endDateTime, luggageCount);
+  const luggagePrice = calculatePrice(effectiveBasePrice, effectiveHourlyRate, effectiveDailyCap, startDateTime, endDateTime, luggageCount, priceMultiplier, holidaySurcharge);
   const insurancePremium = insuredAmount > 0 ? calculateInsurancePremium(insuredAmount) * luggageCount : 0;
   const totalAmount = luggagePrice + insurancePremium;
 
@@ -314,7 +323,7 @@ export default function OrderCreate() {
           <div className="mt-4 p-3 bg-teal-50 rounded-xl flex items-start gap-2">
             <Info size={16} className="text-teal-600 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-teal-700">
-              预计寄存 {totalHours} 小时，超时将按小时计费
+              预计寄存 {totalHours} 小时{isHoliday ? `，节假日加价 x${priceMultiplier}` : ''}，超时将按小时计费
             </p>
           </div>
         )}
@@ -352,7 +361,8 @@ export default function OrderCreate() {
                 <div className={`text-sm font-medium mt-2 ${
                   selectedSize === option.value ? 'text-teal-600' : 'text-slate-600'
                 }`}>
-                  {formatPrice(store[option.priceKey])}起
+                  {formatPrice(priceRule ? priceRule[option.priceKey] : store[option.priceKey])}起
+                  {isHoliday && <span className="text-amber-600 text-xs ml-1">节假日加价</span>}
                 </div>
               </button>
             ))}

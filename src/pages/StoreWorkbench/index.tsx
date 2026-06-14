@@ -22,7 +22,8 @@ import {
 import { useOrderStore } from '@/store/useOrderStore';
 import { useUserStore } from '@/store/useUserStore';
 import { useStoreStore } from '@/store/useStoreStore';
-import { formatPrice, formatDateTime, getStatusLabel, getStatusColor, getSizeLabel, calculatePrice } from '@/utils/format';
+import { useAdminStore } from '@/store/useAdminStore';
+import { formatPrice, formatDateTime, getStatusLabel, getStatusColor, getSizeLabel, calculatePrice, isHolidayPeriod, calculateOverdueFee } from '@/utils/format';
 import type { Order } from '@/types';
 
 type ModalType = 'store' | 'pickup' | 'overdue' | 'renew' | 'locker' | null;
@@ -31,14 +32,14 @@ export default function StoreWorkbench() {
   const { currentUser } = useUserStore();
   const { getOrdersByStoreId, storeLuggage, pickupLuggage, updateLocker, markOverdue, renewOrder, getOrderByPickupCode } = useOrderStore();
   const { getStoreById } = useStoreStore();
-  
+
   const [activeTab, setActiveTab] = useState<'stored' | 'today'>('stored');
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [scanCode, setScanCode] = useState('');
   const [foundOrder, setFoundOrder] = useState<Order | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  
+
   const [lockerInputs, setLockerInputs] = useState<string[]>([]);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [newLockerNo, setNewLockerNo] = useState('');
@@ -47,6 +48,7 @@ export default function StoreWorkbench() {
   const [renewEndTime, setRenewEndTime] = useState('');
   const [renewHours, setRenewHours] = useState(0);
   const [renewAmount, setRenewAmount] = useState(0);
+  const [renewOverdueFee, setRenewOverdueFee] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const storeId = currentUser?.storeId || 'store-001';
@@ -80,23 +82,79 @@ export default function StoreWorkbench() {
     setTimeout(() => setSuccessMessage(null), 2500);
   };
 
+  const getPriceParams = () => {
+    const priceRule = useAdminStore.getState().getPriceRuleByStoreId(storeId);
+    const hourlyRate = priceRule ? priceRule.hourlyRate : (store?.hourlyRate || 5);
+    const dailyCap = priceRule ? priceRule.dailyCap : (store?.dailyCap || 30);
+    const basePrice = priceRule ? priceRule.basePrice : (store?.basePrice || 15);
+    const holidaySurcharge = priceRule ? priceRule.holidaySurcharge : 0;
+    return { hourlyRate, dailyCap, basePrice, holidaySurcharge };
+  };
+
+  const getHolidayMultiplier = (startTime: string, endTime: string) => {
+    const holidays = useAdminStore.getState().holidayConfigs;
+    const { multiplier } = isHolidayPeriod(startTime, endTime, holidays);
+    return multiplier;
+  };
+
+  const calculateRenewAmount = (order: Order, endDate: string, endTime: string) => {
+    if (!endDate || !endTime) {
+      setRenewHours(0);
+      setRenewAmount(0);
+      setRenewOverdueFee(0);
+      return;
+    }
+
+    const currentEnd = new Date(order.endTime).getTime();
+    const newEnd = new Date(`${endDate}T${endTime}:00`).getTime();
+
+    if (newEnd <= currentEnd) {
+      setRenewHours(0);
+      setRenewAmount(0);
+      setRenewOverdueFee(0);
+      return;
+    }
+
+    const hours = Math.ceil((newEnd - currentEnd) / (1000 * 60 * 60));
+    setRenewHours(hours);
+
+    const { hourlyRate, dailyCap, basePrice, holidaySurcharge } = getPriceParams();
+    const multiplier = getHolidayMultiplier(order.endTime, `${endDate}T${endTime}:00`);
+
+    let overdueFee = 0;
+    if (order.status === 'overdue') {
+      overdueFee = calculateOverdueFee(hourlyRate, dailyCap, order.endTime, new Date().toISOString(), order.luggageCount, multiplier);
+    }
+    setRenewOverdueFee(overdueFee);
+
+    const renewFee = calculatePrice(basePrice, hourlyRate, dailyCap, order.endTime, `${endDate}T${endTime}:00`, order.luggageCount, multiplier, holidaySurcharge);
+    setRenewAmount(overdueFee + renewFee);
+  };
+
+  const getPickupOverdueFee = (order: Order) => {
+    if (order.status !== 'overdue') return 0;
+    const { hourlyRate, dailyCap } = getPriceParams();
+    const multiplier = getHolidayMultiplier(order.endTime, new Date().toISOString());
+    return calculateOverdueFee(hourlyRate, dailyCap, order.endTime, new Date().toISOString(), order.luggageCount, multiplier);
+  };
+
   const handleScan = () => {
     if (!scanCode.trim()) return;
-    
+
     const order = getOrderByPickupCode(scanCode.trim());
     if (!order) {
       alert('订单不存在，请检查取件码');
       return;
     }
-    
+
     if (order.storeId !== storeId) {
       alert('该订单不属于当前门店');
       return;
     }
-    
+
     setFoundOrder(order);
     setSelectedOrder(order);
-    
+
     if (activeModal === 'store' && order.status === 'paid') {
       setLockerInputs(order.luggages.map(() => ''));
       setPhotoUrls(order.luggages.map(() => ''));
@@ -109,7 +167,7 @@ export default function StoreWorkbench() {
       setRenewEndDate(tomorrow.toISOString().split('T')[0]);
       setRenewEndTime('18:00');
       calculateRenewAmount(order, tomorrow.toISOString().split('T')[0], '18:00');
-    } else if (activeModal === 'pickup' && order.status === 'stored') {
+    } else if (activeModal === 'pickup' && (order.status === 'stored' || order.status === 'overdue')) {
       // 直接确认取件
     } else if (activeModal === 'overdue' && order.status === 'stored') {
       // 标记超时
@@ -118,47 +176,20 @@ export default function StoreWorkbench() {
     }
   };
 
-  const calculateRenewAmount = (order: Order, endDate: string, endTime: string) => {
-    if (!endDate || !endTime) {
-      setRenewHours(0);
-      setRenewAmount(0);
-      return;
-    }
-    
-    const currentEnd = new Date(order.endTime).getTime();
-    const newEnd = new Date(`${endDate}T${endTime}:00`).getTime();
-    
-    if (newEnd <= currentEnd) {
-      setRenewHours(0);
-      setRenewAmount(0);
-      return;
-    }
-    
-    const hours = Math.ceil((newEnd - currentEnd) / (1000 * 60 * 60));
-    setRenewHours(hours);
-    
-    const basePrice = store ? store.basePrice : 15;
-    const hourlyRate = store ? store.hourlyRate : 5;
-    const dailyCap = store ? store.dailyCap : 30;
-    
-    const amount = calculatePrice(basePrice, hourlyRate, dailyCap, order.endTime, `${endDate}T${endTime}:00`, order.luggageCount);
-    setRenewAmount(amount);
-  };
-
   const handleStoreLuggage = () => {
     if (!foundOrder) return;
-    
+
     const emptyLockers = lockerInputs.filter(l => !l.trim());
     if (emptyLockers.length > 0) {
       alert('请为所有行李分配柜位号');
       return;
     }
-    
+
     const hasPhotos = photoUrls.some(p => p.trim());
     if (!hasPhotos) {
       if (!confirm('未上传行李照片，是否继续入库？')) return;
     }
-    
+
     storeLuggage(foundOrder.id, lockerInputs, photoUrls);
     closeModal();
     showSuccess('入库成功！行李已安全存放');
@@ -166,12 +197,24 @@ export default function StoreWorkbench() {
 
   const handlePickup = () => {
     if (!foundOrder && !selectedOrder) return;
-    const orderId = foundOrder?.id || selectedOrder?.id;
-    if (!orderId) return;
-    
+    const order = foundOrder || selectedOrder;
+    if (!order) return;
+    const orderId = order.id;
+
+    if (order.status === 'overdue') {
+      const overdueFee = getPickupOverdueFee(order);
+      renewOrder(orderId, order.endTime, overdueFee);
+    }
+
     pickupLuggage(orderId);
     closeModal();
-    showSuccess('取件成功！感谢您的使用');
+
+    if (order.status === 'overdue') {
+      const overdueFee = getPickupOverdueFee(order);
+      showSuccess(`取件成功！超时费用 ${formatPrice(overdueFee)} 已追加`);
+    } else {
+      showSuccess('取件成功！感谢您的使用');
+    }
   };
 
   const handleUpdateLocker = () => {
@@ -180,7 +223,7 @@ export default function StoreWorkbench() {
       alert('请输入新的柜位号');
       return;
     }
-    
+
     updateLocker(selectedOrder.id, selectedLuggageIndex, newLockerNo.trim());
     closeModal();
     showSuccess('柜位已更新');
@@ -190,9 +233,9 @@ export default function StoreWorkbench() {
     if (!foundOrder && !selectedOrder) return;
     const orderId = foundOrder?.id || selectedOrder?.id;
     if (!orderId) return;
-    
+
     if (!confirm('确定要将此订单标记为超时吗？')) return;
-    
+
     markOverdue(orderId);
     closeModal();
     showSuccess('已标记为超时订单');
@@ -204,11 +247,16 @@ export default function StoreWorkbench() {
       alert('请选择有效的续存时间');
       return;
     }
-    
+
     const newEndTime = `${renewEndDate}T${renewEndTime}:00`;
     renewOrder(selectedOrder.id, newEndTime, renewAmount);
     closeModal();
-    showSuccess(`续存成功！延长${renewHours}小时，费用${formatPrice(renewAmount)}`);
+
+    if (renewOverdueFee > 0) {
+      showSuccess(`续存成功！超时补费 ${formatPrice(renewOverdueFee)}，续存费用 ${formatPrice(renewAmount - renewOverdueFee)}，合计 ${formatPrice(renewAmount)}`);
+    } else {
+      showSuccess(`续存成功！延长${renewHours}小时，费用${formatPrice(renewAmount)}`);
+    }
   };
 
   const openModal = (type: ModalType, order?: Order) => {
@@ -247,6 +295,7 @@ export default function StoreWorkbench() {
     setRenewEndTime('');
     setRenewHours(0);
     setRenewAmount(0);
+    setRenewOverdueFee(0);
   };
 
   const quickActions = [
@@ -610,53 +659,75 @@ export default function StoreWorkbench() {
                   </div>
                 </>
               ) : activeModal === 'pickup' && (foundOrder?.status === 'stored' || foundOrder?.status === 'overdue') ? (
-                <>
-                  <div className="mb-4">
-                    <p className="text-sm text-slate-500 mb-1">订单号</p>
-                    <p className="font-bold text-slate-800">{foundOrder.orderNo}</p>
-                  </div>
-                  <div className="mb-4">
-                    <p className="text-sm text-slate-500 mb-1">取件码</p>
-                    <p className="text-2xl font-bold text-teal-600 font-mono tracking-widest">
-                      {foundOrder.pickupCode}
-                    </p>
-                  </div>
-                  <div className="mb-4 p-4 bg-slate-50 rounded-xl">
-                    <p className="text-sm font-medium text-slate-700 mb-2">行李信息</p>
-                    {foundOrder.luggages.map((lug, i) => (
-                      <div key={i} className="flex items-center justify-between py-2">
-                        <span className="text-sm text-slate-600">
-                          行李 {i + 1}：{getSizeLabel(lug.size)}
-                        </span>
-                        <span className="text-sm font-medium text-teal-600">
-                          {lug.lockerNo || '未分配'}
-                        </span>
+                (() => {
+                  const pickupOrder = foundOrder || selectedOrder;
+                  const overdueFee = pickupOrder?.status === 'overdue' && pickupOrder ? getPickupOverdueFee(pickupOrder) : 0;
+                  return (
+                    <>
+                      <div className="mb-4">
+                        <p className="text-sm text-slate-500 mb-1">订单号</p>
+                        <p className="font-bold text-slate-800">{pickupOrder?.orderNo}</p>
                       </div>
-                    ))}
-                  </div>
-                  {foundOrder.status === 'overdue' && (
-                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                      <p className="text-sm text-amber-700">
-                        <AlertTriangle size={14} className="inline mr-1" />
-                        此订单已超时，请确认是否已支付超时费用
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={handlePickup}
-                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors"
-                    >
-                      确认取件
-                    </button>
-                    <button
-                      onClick={closeModal}
-                      className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
-                    >
-                      取消
-                    </button>
-                  </div>
-                </>
+                      <div className="mb-4">
+                        <p className="text-sm text-slate-500 mb-1">取件码</p>
+                        <p className="text-2xl font-bold text-teal-600 font-mono tracking-widest">
+                          {pickupOrder?.pickupCode}
+                        </p>
+                      </div>
+                      <div className="mb-4 p-4 bg-slate-50 rounded-xl">
+                        <p className="text-sm font-medium text-slate-700 mb-2">行李信息</p>
+                        {pickupOrder?.luggages.map((lug, i) => (
+                          <div key={i} className="flex items-center justify-between py-2">
+                            <span className="text-sm text-slate-600">
+                              行李 {i + 1}：{getSizeLabel(lug.size)}
+                            </span>
+                            <span className="text-sm font-medium text-teal-600">
+                              {lug.lockerNo || '未分配'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {pickupOrder?.status === 'overdue' && (
+                        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                          <p className="text-sm text-amber-700 font-medium mb-2">
+                            <AlertTriangle size={14} className="inline mr-1" />
+                            此订单已超时，需追加超时费用
+                          </p>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-amber-600">原定取件时间</span>
+                              <span className="text-amber-800">{formatDateTime(pickupOrder.endTime)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-amber-600">超时费用</span>
+                              <span className="text-amber-800 font-bold">{formatPrice(overdueFee)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm pt-1 border-t border-amber-200">
+                              <span className="text-amber-600">应付总额</span>
+                              <span className="text-amber-800 font-bold">{formatPrice(pickupOrder.totalAmount + overdueFee)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-3">
+                        <button
+                          onClick={handlePickup}
+                          className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors"
+                        >
+                          {pickupOrder?.status === 'overdue'
+                            ? `确认取件（含超时费 ${formatPrice(overdueFee)}）`
+                            : '确认取件'}
+                        </button>
+                        <button
+                          onClick={closeModal}
+                          className="px-6 py-3 border border-slate-200 text-slate-600 font-medium rounded-xl hover:bg-slate-50 transition-colors"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()
               ) : activeModal === 'locker' && selectedOrder ? (
                 <>
                   <div className="mb-4">
@@ -793,10 +864,29 @@ export default function StoreWorkbench() {
                         <span className="text-slate-600">续存时长</span>
                         <span className="font-bold text-teal-700">{renewHours} 小时</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">续存费用</span>
-                        <span className="font-bold text-teal-700">{formatPrice(renewAmount)}</span>
-                      </div>
+                      {renewOverdueFee > 0 && (
+                        <>
+                          <div className="flex justify-between mb-2">
+                            <span className="text-amber-600">超时补费</span>
+                            <span className="font-bold text-amber-700">{formatPrice(renewOverdueFee)}</span>
+                          </div>
+                          <div className="flex justify-between mb-2">
+                            <span className="text-slate-600">续存费用</span>
+                            <span className="font-bold text-teal-700">{formatPrice(renewAmount - renewOverdueFee)}</span>
+                          </div>
+                          <div className="border-t border-teal-200 my-2" />
+                          <div className="flex justify-between">
+                            <span className="text-slate-700 font-medium">合计费用</span>
+                            <span className="font-bold text-teal-800">{formatPrice(renewAmount)}</span>
+                          </div>
+                        </>
+                      )}
+                      {renewOverdueFee === 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-600">续存费用</span>
+                          <span className="font-bold text-teal-700">{formatPrice(renewAmount)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex gap-3">

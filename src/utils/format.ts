@@ -162,6 +162,8 @@ export const calculatePrice = (
   startTime: string,
   endTime: string,
   luggageCount: number,
+  priceMultiplier: number = 1,
+  holidaySurcharge: number = 0,
 ): number => {
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
@@ -170,9 +172,51 @@ export const calculatePrice = (
   const totalHours = Math.min(hours, days * 24);
   let price = basePrice + Math.max(0, totalHours - 1) * hourlyRate;
   price = Math.min(price, dailyCap * days);
+  price = price * priceMultiplier + holidaySurcharge * days;
   return price * luggageCount;
 };
 
 export const calculateInsurancePremium = (insuredAmount: number): number => {
   return Math.max(5, insuredAmount * 0.01);
+};
+
+export const isHolidayPeriod = (startTime: string, endTime: string, holidays: { date: string; priceMultiplier: number }[]): { isHoliday: boolean; multiplier: number } => {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  let maxMultiplier = 1;
+  let foundHoliday = false;
+
+  for (const holiday of holidays) {
+    const holidayDate = new Date(holiday.date);
+    const holidayStr = `${holidayDate.getFullYear()}-${String(holidayDate.getMonth() + 1).padStart(2, '0')}-${String(holidayDate.getDate()).padStart(2, '0')}`;
+
+    const startDateStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+    const endDateStr = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+
+    if (holidayStr >= startDateStr && holidayStr <= endDateStr) {
+      foundHoliday = true;
+      maxMultiplier = Math.max(maxMultiplier, holiday.priceMultiplier);
+    }
+  }
+
+  return { isHoliday: foundHoliday, multiplier: maxMultiplier };
+};
+
+export const calculateOverdueFee = (
+  hourlyRate: number,
+  dailyCap: number,
+  originalEndTime: string,
+  currentTime: string,
+  luggageCount: number,
+  priceMultiplier: number = 1,
+): number => {
+  const end = new Date(originalEndTime).getTime();
+  const now = new Date(currentTime).getTime();
+  if (now <= end) return 0;
+  const overdueHours = Math.max(1, Math.ceil((now - end) / (1000 * 60 * 60)));
+  const overdueDays = Math.ceil(overdueHours / 24);
+  let fee = hourlyRate * overdueHours;
+  fee = Math.min(fee, dailyCap * overdueDays);
+  fee = fee * priceMultiplier;
+  return fee * luggageCount;
 };

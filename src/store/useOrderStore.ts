@@ -32,6 +32,7 @@ interface OrderState {
   updateLocker: (orderId: string, luggageIndex: number, newLockerNo: string) => void;
   markOverdue: (orderId: string) => void;
   renewOrder: (orderId: string, newEndTime: string, additionalAmount: number) => void;
+  rateOrder: (orderId: string, rating: number, review: string) => void;
 }
 
 export const useOrderStore = create<OrderState>()(
@@ -253,8 +254,10 @@ export const useOrderStore = create<OrderState>()(
         set(state => ({
           orders: state.orders.map(o => {
             if (o.id !== orderId) return o;
+            const newStatus = o.status === 'overdue' ? 'stored' : o.status;
             return {
               ...o,
+              status: newStatus,
               originalEndTime: o.originalEndTime || o.endTime,
               endTime: newEndTime,
               renewedAt: now,
@@ -266,8 +269,10 @@ export const useOrderStore = create<OrderState>()(
           currentOrder: state.currentOrder?.id === orderId
             ? (() => {
                 const o = state.currentOrder;
+                const newStatus = o.status === 'overdue' ? 'stored' : o.status;
                 return {
                   ...o,
+                  status: newStatus,
                   originalEndTime: o.originalEndTime || o.endTime,
                   endTime: newEndTime,
                   renewedAt: now,
@@ -276,6 +281,17 @@ export const useOrderStore = create<OrderState>()(
                   totalAmount: o.totalAmount + additionalAmount,
                 };
               })()
+            : state.currentOrder,
+        }));
+      },
+
+      rateOrder: (orderId, rating, review) => {
+        set(state => ({
+          orders: state.orders.map(o =>
+            o.id === orderId ? { ...o, rating, review } : o
+          ),
+          currentOrder: state.currentOrder?.id === orderId
+            ? { ...state.currentOrder, rating, review }
             : state.currentOrder,
         }));
       },

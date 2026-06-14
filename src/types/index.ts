@@ -82,6 +82,8 @@ export interface Order {
   renewedAt?: string;
   renewCount?: number;
   additionalAmount?: number;
+  rating?: number;
+  review?: string;
 }
 
 export interface FilterParams {

@@ -52,7 +52,7 @@ export default function AdminDashboard() {
   const [editingHoliday, setEditingHoliday] = useState<HolidayConfig | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const { stores, addStore, updateStore, deleteStore } = useStoreStore();
+  const { stores, addStore, updateStore, deleteStore, getStoreById } = useStoreStore();
   const {
     priceRules,
     holidayConfigs,
@@ -107,7 +107,7 @@ export default function AdminDashboard() {
       phone: formData.get('phone') as string,
       businessHours: formData.get('businessHours') as string,
       totalCapacity: parseInt(formData.get('totalCapacity') as string),
-      availableCapacity: parseInt(formData.get('totalCapacity') as string),
+      availableCapacity: editingStore ? editingStore.availableCapacity : parseInt(formData.get('totalCapacity') as string),
       basePrice: parseFloat(formData.get('basePrice') as string),
       smallPrice: parseFloat(formData.get('smallPrice') as string) || 10,
       mediumPrice: parseFloat(formData.get('mediumPrice') as string) || 15,
@@ -115,18 +115,29 @@ export default function AdminDashboard() {
       hourlyRate: parseFloat(formData.get('hourlyRate') as string) || 5,
       dailyCap: parseFloat(formData.get('dailyCap') as string) || 30,
       locationType: formData.get('locationType') as LocationType,
-      lat: 31.2304,
-      lng: 121.4737,
-      description: '专业行李寄存服务',
-      rating: 5,
-      reviewCount: 0,
-      distance: 0,
-      images: ['https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=modern%20luggage%20storage%20store%20interior%20with%20clean%20lockers&image_size=square'],
-      features: [],
+      lat: editingStore ? editingStore.lat : 31.2304,
+      lng: editingStore ? editingStore.lng : 121.4737,
+      description: editingStore ? editingStore.description : '专业行李寄存服务',
+      rating: editingStore ? editingStore.rating : 5,
+      reviewCount: editingStore ? editingStore.reviewCount : 0,
+      distance: editingStore ? editingStore.distance : 0,
+      images: editingStore ? editingStore.images : ['https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=modern%20luggage%20storage%20store%20interior%20with%20clean%20lockers&image_size=square'],
+      features: editingStore ? editingStore.features : [],
     };
 
     if (editingStore) {
       updateStore(editingStore.id, storeData);
+      const existingRule = useAdminStore.getState().getPriceRuleByStoreId(editingStore.id);
+      if (existingRule) {
+        updatePriceRule(existingRule.id, {
+          basePrice: storeData.basePrice,
+          smallPrice: storeData.smallPrice,
+          mediumPrice: storeData.mediumPrice,
+          largePrice: storeData.largePrice,
+          hourlyRate: storeData.hourlyRate,
+          dailyCap: storeData.dailyCap,
+        });
+      }
       showToast('门店更新成功');
     } else {
       addStore(storeData);
@@ -159,9 +170,31 @@ export default function AdminDashboard() {
 
     if (editingPriceRule) {
       updatePriceRule(editingPriceRule.id, priceRuleData);
+      const targetStore = getStoreById(priceRuleData.storeId);
+      if (targetStore) {
+        updateStore(targetStore.id, {
+          basePrice: priceRuleData.basePrice,
+          smallPrice: priceRuleData.smallPrice,
+          mediumPrice: priceRuleData.mediumPrice,
+          largePrice: priceRuleData.largePrice,
+          hourlyRate: priceRuleData.hourlyRate,
+          dailyCap: priceRuleData.dailyCap,
+        });
+      }
       showToast('价格规则更新成功');
     } else {
       addPriceRule(priceRuleData);
+      const targetStore = getStoreById(priceRuleData.storeId);
+      if (targetStore) {
+        updateStore(targetStore.id, {
+          basePrice: priceRuleData.basePrice,
+          smallPrice: priceRuleData.smallPrice,
+          mediumPrice: priceRuleData.mediumPrice,
+          largePrice: priceRuleData.largePrice,
+          hourlyRate: priceRuleData.hourlyRate,
+          dailyCap: priceRuleData.dailyCap,
+        });
+      }
       showToast('价格规则新增成功');
     }
     setShowPriceModal(false);
@@ -334,7 +367,7 @@ export default function AdminDashboard() {
                       <p className="text-sm font-medium text-slate-800 truncate">{store.name}</p>
                       <p className="text-xs text-slate-400">{store.reviewCount} 单</p>
                     </div>
-                    <span className="text-sm font-bold text-teal-600">{formatPrice(store.basePrice * 100)}</span>
+                    <span className="text-sm font-bold text-teal-600">{formatPrice(store.basePrice)}</span>
                   </div>
                 ))}
               </div>
@@ -510,11 +543,11 @@ export default function AdminDashboard() {
                       <td className="px-6 py-4 font-medium text-slate-800 text-sm">
                         {getStoreNameById(rule.storeId)}
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.smallPrice * 100)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.mediumPrice * 100)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.largePrice * 100)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.hourlyRate * 100)}/时</td>
-                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.dailyCap * 100)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.smallPrice)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.mediumPrice)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.largePrice)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.hourlyRate)}/时</td>
+                      <td className="px-6 py-4 text-sm text-slate-600 text-right">{formatPrice(rule.dailyCap)}</td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
